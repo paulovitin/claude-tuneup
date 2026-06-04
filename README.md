@@ -1,6 +1,8 @@
 <div align="center">
 
-# 🧹 claude-tuneup
+<img src="assets/logo.png" alt="claude-tuneup" width="220" />
+
+# claude-tuneup
 
 ### Clean your Claude Code install. Optimize it. Then give it a soul.
 
