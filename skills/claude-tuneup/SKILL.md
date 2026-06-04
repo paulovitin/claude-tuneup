@@ -100,7 +100,7 @@ Make sure backups never leak when the skill is shared: ensure `$SKILL_DIR/.gitig
 
 Deletion policy:
 - **Unique / irreplaceable** (real skills, project data, configs, anything the dev can't easily regenerate) → **move into `$RP/removed/`**, never `rm`. Restorable.
-- **Pure junk** (`.DS_Store`) and **self-regenerating artifacts** (venvs, plugin caches) → hard `rm` is fine; copying them wastes space and they come back anyway.
+- **Self-regenerating artifacts** (venvs, plugin caches) → hard `rm` is fine; copying them wastes space and they come back anyway. OS cruft (`.DS_Store`, `Thumbs.db`) → skip entirely, it just regenerates (see STEP 7).
 - **Marketplace / plugin removals** → can't move; log the exact re-add command in `actions.log`.
 - Config edits are covered by the snapshot copies above.
 
@@ -227,7 +227,7 @@ ls -la ~/.claude/ | grep -v '^d' | grep -v '^total'
 ```
 
 For each file:
-- **Obvious junk** (OS cruft like `.DS_Store`, `Thumbs.db`) → offer to delete.
+- **OS cruft that regenerates** (`.DS_Store`, `Thumbs.db`) → **skip entirely.** Don't list it, don't ask — macOS/Windows recreate it instantly, so deleting wastes the dev's time. Ignore it everywhere it appears, in every step.
 - **Stale backups** (`*.bak`, `*.old`, `*.backup*`, dated copies) → offer to delete, keeping the newest if it's a rolling backup.
 - **Regenerable caches / result files** (`*-cache.json`, `*result*.json`, lockfile-style artifacts) → offer to delete; they come back.
 - **Files this skill edits or that hold real config** (`CLAUDE.md`, `SOUL.md`, `settings*.json`, the global `.claude.json`) → keep; `CLAUDE.md`/`SOUL.md` are handled in steps 9–10.
