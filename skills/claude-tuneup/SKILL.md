@@ -298,6 +298,13 @@ Then:
 - Apply changes
 - Note: `/insights` reports accumulate in `~/.claude/usage-data/` — offer to prune old ones (ties back to STEP 6).
 
+**Keep it lean (hard budget).** `CLAUDE.md` loads into the context of *every* session — bloat is a permanent token tax. Enforce:
+- **≤ 200 lines and ideally ≤ ~1500 tokens** (`wc -l ~/.claude/CLAUDE.md`; `≈ chars/4` for tokens). If a proposed addition would blow the budget, don't just append — trim or merge first.
+- Every line must **change behavior**. Cut anything generic ("write clean code"), redundant, or already implied. One sharp line beats a paragraph.
+- Prefer terse rules / bullets over prose. No filler, no restating the obvious.
+- If the file is **already over budget**, offer to compress it (dedupe, merge sections, drop dead rules) before adding anything.
+- Show the before/after line+token count so the dev sees the cost.
+
 ---
 
 ### STEP 10: Propose a `SOUL.md` (give the install a soul)
@@ -327,6 +334,12 @@ Then:
 - Write `~/.claude/SOUL.md` from the answers — tight, only facts that change how the agent acts.
 - Wire it: add `@SOUL.md` to the top of `~/.claude/CLAUDE.md` so it loads each session (it is NOT auto-loaded otherwise).
 - Read it back and offer to adjust. Stop when more questions would only add bloat — say so honestly.
+
+**Keep it lean (hard budget).** `SOUL.md` rides into every session via `@SOUL.md` (on top of `CLAUDE.md`) — the two share one context budget, so the same discipline applies:
+- **≤ 200 lines and ideally ≤ ~1500 tokens** (`wc -l ~/.claude/SOUL.md`).
+- Only facts that **change how the agent acts**. No biography, no nice-to-know trivia, no churny state (projects/tasks go to memory, not here).
+- One crisp line per trait. If an interview answer doesn't shift behavior, drop it instead of recording it.
+- Show the final line+token count so the dev sees what loads every session.
 
 ---
 
@@ -367,3 +380,4 @@ Then, via AskUserQuestion, ask if the result looks good:
 6. **All decisions via AskUserQuestion buttons** — never free-text y/n. **EVERY question must include a "What does this do?" button** (no exceptions, even an obvious-looking delete); picking it inspects + explains that item, then re-asks. See "How to ask the dev".
 7. **Size beats labels** — measure everything, drill into any dir ≥ 50M even if marked "internal/keep"
 8. **Verify deletes stuck** — re-`du` after deleting big artifacts; if it regenerated, the real fix is disabling the owning plugin
+9. **`CLAUDE.md` + `SOUL.md` stay lean** — each ≤ 200 lines / ~1500 tokens; every line must change behavior. They load into every session, so bloat is a permanent token tax. Trim before adding.
