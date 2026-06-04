@@ -8,6 +8,24 @@ import { HOME, CLAUDE_DIR, CLAUDE_JSON, readJSON, exists, dirSize, isEmptyDir, h
 const ls = (p) => { try { return fs.readdirSync(p); } catch { return []; } };
 const lstat = (p) => { try { return fs.lstatSync(p); } catch { return null; } };
 const OS_CRUFT = new Set(['.DS_Store', 'Thumbs.db']);
+// Irreplaceable conversation history / session state. Not covered by the restore
+// point (only configs are snapshotted), so deleting any of these is permanent.
+const SESSION_HISTORY = new Set(['projects', 'todos', 'shell-snapshots', 'file-history', 'sessions', 'statsig']);
+
+function ageSpan(dir) {
+  // Oldest/newest child mtime + count — lets the agent prune by clear age, never in bulk.
+  const names = ls(dir);
+  let oldest = Infinity, newest = 0;
+  for (const n of names) {
+    const st = lstat(path.join(dir, n));
+    if (!st) continue;
+    const ms = st.mtimeMs;
+    if (ms < oldest) oldest = ms;
+    if (ms > newest) newest = ms;
+  }
+  const iso = (ms) => (ms && isFinite(ms)) ? new Date(ms).toISOString().slice(0, 10) : null;
+  return { count: names.length, oldest: iso(oldest), newest: iso(newest) };
+}
 
 function scanSkills() {
   const dir = path.join(CLAUDE_DIR, 'skills');
@@ -84,8 +102,11 @@ function scanStateDirs(handled) {
   }).map(name => {
     const p = path.join(CLAUDE_DIR, name);
     const bytes = dirSize(p);
+    const sensitive = SESSION_HISTORY.has(name);
     return {
       name, size: human(bytes), empty: isEmptyDir(p), big: bytes >= 50 * MB,
+      sessionHistory: sensitive,
+      ...(sensitive ? { span: ageSpan(p) } : {}),
     };
   }).sort((a, b) => (b.empty === a.empty ? 0 : a.empty ? 1 : -1));
 }
@@ -97,6 +118,7 @@ function scanRootFiles() {
   }).map(name => {
     let cls = 'unknown';
     if (OS_CRUFT.has(name)) cls = 'os-cruft-skip';
+    else if (/^history\.jsonl$/.test(name)) cls = 'session-history';
     else if (/\.(bak|old)$|\.backup/.test(name)) cls = 'stale-backup';
     else if (/-cache\.json$|result.*\.json$/.test(name)) cls = 'regenerable';
     else if (/^(CLAUDE|SOUL)\.md$|^settings.*\.json$/.test(name)) cls = 'config-keep';

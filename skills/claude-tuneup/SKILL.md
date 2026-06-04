@@ -81,8 +81,9 @@ Routing:
 - **`restore`** → undo a previous run, even in a later session. Do NOT run any cleanup step:
   1. List restore points: `node "$SKILL_DIR/scripts/restore.mjs" list` (timestamp, how many items removed, log size).
   2. Ask (AskUserQuestion, with the mandatory "What does this do?" button) which restore point to use.
-  3. Apply: `node "$SKILL_DIR/scripts/restore.mjs" apply <RP>` — copies snapshotted configs back, moves removed items to their original paths, and prints any manual re-add commands (marketplaces/plugins) for you to replay.
-  4. Confirm what was restored; offer to keep or purge the restore point afterward.
+  3. **Warn before applying.** A restore copies *old* configs back over the current ones. `.claude.json` carries live state (projects, session pointers) — so restoring it can drop projects/sessions created **after** the backup. Say this explicitly and confirm. The script protects you two ways: it first saves the **current** configs into a `pre-restore-…` folder (so the restore is itself reversible), and it never overwrites a newer item that re-took a removed path (those land at `<path>.restored-<ts>` instead).
+  4. Apply: `node "$SKILL_DIR/scripts/restore.mjs" apply <RP>` — copies snapshotted configs back, moves removed items to their original paths, and prints `restored`, `collisions` (items that couldn't take their original path and where they went), `preRestoreSnapshot` (the pre-restore safety copy), and `manualReAdd` (marketplaces/plugins for you to replay).
+  5. Validate restored JSON (`python3 -m json.tool ~/.claude.json`). Report `collisions` to the dev so they resolve any `.restored-<ts>` items by hand. Offer to keep or purge the restore point + the pre-restore snapshot afterward.
 - **Argument given** (a group/steps) → run exactly that. Accept group names (`cleanup`, `claude.md`, `soul.md`, `summary`), step numbers, or ranges (`1-3`, `step 5`, `6,7`). Then run STEP 11. Be lenient on aliases (`insights` → `claude.md`, `soul` → `soul.md`).
 - **No argument** → offer the choice via AskUserQuestion before touching anything: options = "Full tune-up (1–11)", "Cleanup only (1–8)", "CLAUDE.md from /insights (9)", "Build SOUL.md (10)". Let them pick one (multiSelect ok for combining claude.md + soul.md).
 
@@ -223,10 +224,25 @@ Skip dirs already handled by earlier steps of this run (skills/plugins/hooks). F
 - **Empty** (`[ -z "$(ls -A <dir>)" ]`) → offer to delete.
 - **Big (≥ 50M)** → drill in (`du -sh <dir>/* | sort -rh`) and surface the large children. **Size beats labels** — the biggest win is often inside a dir that *sounds* internal (e.g. a bundled venv/runtime). Never skip a dir just because its name sounds important.
 - **Looks regenerable** (cache/tmp/venv/build/log signatures, or content that's clearly derived) → offer to delete, but warn it may **self-regenerate**: venvs, plugin caches and downloaded runtimes get rebuilt on next use, so deleting reclaims nothing lasting. After deleting a big artifact, re-`du` to confirm it stayed gone; if it came back, the real reclaim is **uninstall/disable the owning plugin** — offer that instead.
-- **Looks like history/state you can't recreate** (sessions, transcripts, file history) → default to keep; only offer pruning of clearly old entries.
+- **Session history / irreplaceable state** → see the dedicated rules below. Default keep; never bulk-delete.
 - **Unknown / can't classify** → do NOT guess. Inspect it (`ls`, `du`, `file`, peek at a sample file) and route through the "What does this do?" flow: explain what you found, then ask.
 
 Every prompt here goes through AskUserQuestion with the mandatory "What does this do?" button.
+
+#### Session history — handle with extra care
+
+The most valuable, **least replaceable** data in a Claude Code install is the conversation history and session state. `scan.mjs` flags these with `sessionHistory: true` (dirs) or `class: "session-history"` (files), and includes a `span` (`count`, `oldest`, `newest`) so you can reason about age. Canonical locations: `projects/` (full transcripts, `.jsonl` per session), `todos/`, `shell-snapshots/`, `file-history/`, `sessions/`, and `history.jsonl` (prompt history).
+
+Hard rules for anything flagged as session history:
+
+1. **Never in the restore point.** STEP 0.5 only snapshots small config files — transcripts are far too large to copy, so they are **NOT backed up**. Deleting them is **permanent and unrecoverable**. State this out loud before any such delete.
+2. **Default is keep — full stop.** Do not offer to delete an entire history dir, and never include it in a "clean everything" batch. If the dev didn't explicitly ask to reclaim history space, leave it untouched.
+3. **Only ever offer age-scoped pruning, never wholesale.** If (and only if) the dev wants to reclaim space here, use the `span` to propose pruning **clearly old** entries by a concrete cutoff (e.g. "transcripts older than 6 months: 142 sessions, 1.2G, dated 2024-08 → 2025-01"). Show exact count, size, and date range. Keep everything recent.
+4. **Each prune is its own confirmation.** One AskUserQuestion per dir, with the mandatory "What does this do?" button explaining what that history powers (see below). Never a single yes that wipes multiple history dirs.
+5. **Move, don't `rm`, when feasible.** For a bounded prune, move the selected old entries into `$RP/removed/` and log them, so the dev has a window to recover before purging the restore point — even though the main snapshot doesn't cover history.
+6. **Explain the real cost.** Deleting `projects/` breaks `claude --resume` / `--continue` for those sessions and removes the data `/insights` (STEP 9) learns from — so it degrades the very feature this skill uses to improve `CLAUDE.md`. `file-history/` loses per-session edit undo. Make the dev aware before they decide.
+
+When in doubt about a history dir, **keep it** and say why. Reclaiming a few hundred MB is never worth silently destroying someone's conversation history.
 
 ---
 
