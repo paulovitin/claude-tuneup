@@ -80,11 +80,17 @@ It loads every session via `@SOUL.md`, so every answer fits **you** instead of a
 
 ## 🧩 How it works
 
-A single `SKILL.md` the agent follows as a checklist. It **discovers** your install rather than assuming it — no hardcoded file lists — asks before each change, and logs every action so it can be reversed.
+A `SKILL.md` the agent follows as a checklist, backed by deterministic Node helpers for the mechanical parts. It **discovers** your install rather than assuming it — no hardcoded file lists — asks before each change, and logs every action so it can be reversed. The helpers are plain Node (no dependencies), so they run identically on macOS, Windows and Linux via the `node` Claude Code already bundles.
 
 ```
-skills/claude-tuneup/SKILL.md   # the skill
-skills.sh.json                  # registry manifest
+skills/claude-tuneup/
+├─ SKILL.md            # the skill (judgment: classify, ask, decide)
+└─ scripts/            # deterministic, cross-OS (gather & apply)
+   ├─ scan.mjs         # read-only discovery → JSON
+   ├─ backup.mjs       # restore point + snapshot + stash
+   ├─ restore.mjs      # list / apply a restore point
+   └─ insights.mjs     # run /insights headless, extract sections
+skills.sh.json         # registry manifest
 ```
 
 ---

@@ -29,6 +29,19 @@ Never make the dev decide on something they can't identify.
 
 ---
 
+## Helper scripts (deterministic, cross-OS)
+
+The mechanical, repeatable work lives in `"$SKILL_DIR"/scripts/*.mjs` — plain Node (no deps), so it runs the same on macOS, Windows and Linux via the `node` that Claude Code already bundles. **Prefer these over ad-hoc inline shell**; the agent's job is judgment (classify, ask, decide), the scripts' job is gather/apply.
+
+- `node scripts/scan.mjs` → read-only discovery of the whole install as JSON (skills, plugins, marketplaces, hooks, MCPs, projects, state dirs, root files). Touches nothing.
+- `node scripts/backup.mjs create` → make a restore point, print its path (`$RP`). Also `backup.mjs stash <RP> <path>` (move an item into the restore point, logged) and `backup.mjs log <RP> <msg>`.
+- `node scripts/restore.mjs list` / `restore.mjs apply <RP>` → list or apply a restore point.
+- `node scripts/insights.mjs` → run `/insights` headless and return the useful report sections as JSON.
+
+`SKILL_DIR` is shown when the skill loads. Inline shell from the steps below is the fallback when a script can't run.
+
+---
+
 ## STEP 0: Pick what to run (start here)
 
 Don't assume the dev wants the whole thing. The 11 steps form 4 named groups:
@@ -66,9 +79,9 @@ Routing:
   Undo anytime with "claude-tuneup restore".
   ```
 - **`restore`** → undo a previous run, even in a later session. Do NOT run any cleanup step:
-  1. List restore points: `ls -dt "$SKILL_DIR"/.backups/*/ 2>/dev/null` (each is a timestamped run; show its `actions.log` summary).
-  2. Ask (AskUserQuestion, with the mandatory "What does this do?" button) which restore point to use, and whether to do a **full undo** or restore **specific items only**.
-  3. Apply: copy snapshotted configs back (`cp "$RP"/<file> ~/.claude/`, or `~/` for `.claude.json`), move items from `"$RP"/removed/` back to their original paths, and replay re-add commands from `actions.log`. Validate any restored JSON with `python3 -m json.tool`.
+  1. List restore points: `node "$SKILL_DIR/scripts/restore.mjs" list` (timestamp, how many items removed, log size).
+  2. Ask (AskUserQuestion, with the mandatory "What does this do?" button) which restore point to use.
+  3. Apply: `node "$SKILL_DIR/scripts/restore.mjs" apply <RP>` — copies snapshotted configs back, moves removed items to their original paths, and prints any manual re-add commands (marketplaces/plugins) for you to replay.
   4. Confirm what was restored; offer to keep or purge the restore point afterward.
 - **Argument given** (a group/steps) → run exactly that. Accept group names (`cleanup`, `claude.md`, `soul.md`, `summary`), step numbers, or ranges (`1-3`, `step 5`, `6,7`). Then run STEP 11. Be lenient on aliases (`insights` → `claude.md`, `soul` → `soul.md`).
 - **No argument** → offer the choice via AskUserQuestion before touching anything: options = "Full tune-up (1–11)", "Cleanup only (1–8)", "CLAUDE.md from /insights (9)", "Build SOUL.md (10)". Let them pick one (multiSelect ok for combining claude.md + soul.md).
@@ -84,25 +97,16 @@ A tune-up must be undoable. Before the first mutation of the run, create a times
 `SKILL_DIR` = the base directory of this skill (shown when the skill loads, e.g. `~/.agents/skills/claude-tuneup`). All backups live under `$SKILL_DIR/.backups/<ts>/` — self-contained, travels with the skill, nothing scattered across `~/.claude`.
 
 ```bash
-SKILL_DIR="<this skill's base dir>"          # substitute the real path shown at load time
-TS=$(date +%Y%m%d-%H%M%S); RP="$SKILL_DIR/.backups/$TS"; mkdir -p "$RP/removed"
-# Snapshot the small, irreplaceable config files
-for f in ~/.claude.json ~/.claude/settings.json ~/.claude/CLAUDE.md ~/.claude/SOUL.md ~/.claude/settings.local.json; do
-  [ -f "$f" ] && cp -p "$f" "$RP/"
-done
-echo "restore point: $RP"
-# Append every action to "$RP/actions.log" (one line each), e.g.:
-#   echo "removed: <path> -> $RP/removed/" >> "$RP/actions.log"
-#   echo "marketplace removed: <name> (re-add: claude plugin marketplace add <url>)" >> "$RP/actions.log"
+RP=$(node "$SKILL_DIR/scripts/backup.mjs" create)   # snapshots configs, prints the restore-point path
 ```
 
-Make sure backups never leak when the skill is shared: ensure `$SKILL_DIR/.gitignore` contains `.backups/`.
+`backup.mjs create` snapshots the small irreplaceable config files (`.claude.json`, `settings*.json`, `CLAUDE.md`, `SOUL.md`), seeds `actions.log` + `removed.json`, and ensures `.backups/` is git-ignored so backups never leak when the skill is shared.
 
 Deletion policy:
-- **Unique / irreplaceable** (real skills, project data, configs, anything the dev can't easily regenerate) → **move into `$RP/removed/`**, never `rm`. Restorable.
-- **Self-regenerating artifacts** (venvs, plugin caches) → hard `rm` is fine; copying them wastes space and they come back anyway. OS cruft (`.DS_Store`, `Thumbs.db`) → skip entirely, it just regenerates (see STEP 7).
-- **Marketplace / plugin removals** → can't move; log the exact re-add command in `actions.log`.
-- Config edits are covered by the snapshot copies above.
+- **Unique / irreplaceable** (real skills, project data, configs, anything the dev can't easily regenerate) → `node "$SKILL_DIR/scripts/backup.mjs" stash "$RP" <path>` (moves it into the restore point, logged + restorable), never `rm`.
+- **Self-regenerating artifacts** (venvs, plugin caches) → hard `rm` is fine; they rebuild. OS cruft (`.DS_Store`, `Thumbs.db`) → skip entirely (see STEP 7).
+- **Marketplace / plugin removals** → can't move; record the re-add command: `node "$SKILL_DIR/scripts/backup.mjs" log "$RP" "marketplace removed: <name> (re-add: claude plugin marketplace add <url>)"`.
+- Config edits are covered by the snapshot above.
 
 Tell the dev the restore point exists and how to undo (see STEP 11). Only ONE restore point per run; if a step is skipped, the snapshot is still valid.
 
@@ -201,6 +205,14 @@ cat ~/.claude.json | python3 -c "import sys,json; d=json.load(sys.stdin); print(
 
 **Do NOT work from a fixed list of directory names — you don't know what you'll find.** Installs differ and change across versions. Discover what's actually there, then classify each by traits, not by a hardcoded name.
 
+Get the discovery as JSON (the `stateDirs` array already flags `empty` and `big` per dir):
+
+```bash
+node "$SKILL_DIR/scripts/scan.mjs"
+```
+
+Fallback if the script can't run:
+
 ```bash
 ls -la ~/.claude/
 du -sh ~/.claude/*/ 2>/dev/null | sort -rh
@@ -255,34 +267,13 @@ Claude Code ships a built-in **`/insights`** command that analyzes the dev's own
 
 **Privacy / generic-skill rule:** the report is the dev's own data, generated locally on their machine. Never paste report contents into this skill or anywhere shared — read it live, with the dev, only to drive the suggestions below. Skip anything that looks like a secret, token, or private path.
 
-```bash
-# Generate the report headless. No browser. Costs one model call. Needs prior session history.
-REPORT=$(claude -p "/insights" 2>/dev/null | grep -oE 'file://[^ ]+\.html' | head -1 | sed 's#^file://##')
-echo "report: ${REPORT:-NONE}"
-```
-
-If a report was produced, extract the useful sections (text only) and read them:
+Run it headless and get the sections as JSON (no browser; costs one model call; needs prior session history):
 
 ```bash
-[ -n "$REPORT" ] && python3 - "$REPORT" <<'PY'
-import sys,re,html
-t=open(sys.argv[1],encoding='utf-8').read()
-def section(anchor):
-    m=re.search(anchor+r'(.*?)(<h2|<h3|\Z)', t, re.S)
-    if not m: return ''
-    txt=re.sub(r'<[^>]+>',' ',m.group(1))
-    return html.unescape(re.sub(r'\s+',' ',txt)).strip()
-for label,anchor in [
-    ('SUGGESTED CLAUDE.md','Suggested CLAUDE\\.md Additions'),
-    ('WHAT YOU WORK ON','What You Work On'),
-    ('HOW YOU USE CC','How You Use Claude Code'),
-    ('FRICTION','Where Things Go Wrong')]:
-    s=section(anchor)
-    if s: print(f'\n### {label}\n{s[:1500]}')
-PY
+node "$SKILL_DIR/scripts/insights.mjs"
 ```
 
-Use the report's "Suggested CLAUDE.md Additions" as the spine of your proposal; cross-reference "What You Work On" / friction for domain and pain points.
+It returns `{ ok, report, sections: { suggestedClaudeMd, whatYouWorkOn, howYouUse, friction } }`, or `{ ok:false, reason }` when there's no history / `claude -p` is unavailable. Use the report's "Suggested CLAUDE.md Additions" as the spine of your proposal; cross-reference "What You Work On" / friction for domain and pain points.
 
 **Fallback** (no session history yet, or `claude -p` unavailable) — mine usage counters directly:
 
