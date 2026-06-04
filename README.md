@@ -48,8 +48,8 @@ claude-tuneup restore            # undo a previous run from a backup
 | Group | Steps | What it does |
 |:------|:-----:|:-------------|
 | 🧹 **`cleanup`** | 1–8 | Remove junk + fix config integrity — skills, plugins, hooks, MCPs, projects, state dirs, root files, global `.claude.json` |
-| 📄 **`claude.md`** | 9 | Improve `CLAUDE.md`, grounded in your **real usage** via the built-in `/insights` report |
-| ✨ **`soul.md`** | 10 | Interview you and build a `SOUL.md` profile — tone, autonomy, pet peeves, stack, definition of done |
+| 📄 **`claude.md`** | 9 | Improve `CLAUDE.md`, grounded in your **real usage** via the built-in `/insights` report — kept lean (≤ 200 lines) since it loads every session |
+| ✨ **`soul.md`** | 10 | Interview you and build a `SOUL.md` profile — tone, autonomy, pet peeves, stack, definition of done (also kept lean) |
 | 📊 **`summary`** | 11 | Final report of what changed + how to undo *(always runs last)* |
 
 > Run everything, or just one group. No argument → it asks first.
@@ -72,7 +72,9 @@ It loads every session via `@SOUL.md`, so every answer fits **you** instead of a
 ## 🛟 Safety & undo
 
 - **🔘 Nothing deleted without confirmation.** Every choice is a button, and every question has a *"What does this do?"* option that explains the item **before** you decide.
+- **🗂️ Session history is protected.** Your conversation transcripts and session state (`projects/`, `todos/`, `shell-snapshots/`, `file-history/`, `history.jsonl`) are the least replaceable data and are **never** bulk-deleted. The skill defaults to keeping them and only offers age-scoped pruning with explicit per-folder confirmation — warning you first that it's permanent and breaks `--resume` and `/insights`.
 - **↩️ Every run is undoable.** Configs are snapshotted and removed items are *moved* (never `rm`-ed) into a backup under the skill's own `.backups/<timestamp>/`. Roll back anytime with `claude-tuneup restore`.
+- **🛡️ The restore can't clobber.** Before rolling back, it snapshots your *current* configs into a `pre-restore-…` folder (so the restore itself is reversible) and never overwrites a newer item that re-took a removed path — collisions land at `<path>.restored-<ts>` and are reported.
 - **♻️ No pointless reclaims.** Self-regenerating artifacts (venvs, caches, runtimes) are detected — the skill points you at the real fix (disable the owning plugin) instead of deleting something that just rebuilds.
 - **🔒 Privacy.** The `/insights` report is *your* local data — read live to drive suggestions, never copied into the skill or anywhere shared. Backups are git-ignored.
 
