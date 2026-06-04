@@ -364,6 +364,6 @@ Then, via AskUserQuestion, ask if the result looks good:
 3. Advance step by step, don't skip
 4. When editing JSON (`.claude.json`, `settings.json`), use `python3 -m json.tool` before and after to validate. Back up the file first (e.g. `cp ~/.claude.json ~/.claude.json.bak-cleanup`).
 5. Before deleting a directory, confirm it isn't a symlink to something important
-6. **All decisions via AskUserQuestion buttons** — never free-text y/n (see "How to ask the dev")
+6. **All decisions via AskUserQuestion buttons** — never free-text y/n. **EVERY question must include a "What does this do?" button** (no exceptions, even an obvious-looking delete); picking it inspects + explains that item, then re-asks. See "How to ask the dev".
 7. **Size beats labels** — measure everything, drill into any dir ≥ 50M even if marked "internal/keep"
 8. **Verify deletes stuck** — re-`du` after deleting big artifacts; if it regenerated, the real fix is disabling the owning plugin
