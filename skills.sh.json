@@ -1,0 +1,13 @@
+{
+  "$schema": "https://skills.sh/schemas/skills.sh.schema.json",
+  "notGrouped": "bottom",
+  "groupings": [
+    {
+      "title": "Claude Code Maintenance",
+      "description": "Skills for keeping a Claude Code installation clean, optimized, and personalized.",
+      "skills": [
+        "claude-tuneup"
+      ]
+    }
+  ]
+}
