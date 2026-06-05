@@ -5,10 +5,11 @@
 //   node backup.mjs log <RP> <msg>    -> append a line to actions.log (e.g. a re-add command)
 import fs from 'node:fs';
 import path from 'node:path';
-import { HOME, CLAUDE_DIR, CLAUDE_JSON, skillRoot, exists, move } from './lib.mjs';
+import { CLAUDE_DIR, CLAUDE_JSON, backupsRoot, runId, exists, move } from './lib.mjs';
 
-const ROOT = skillRoot(import.meta.url);
-const BACKUPS = path.join(ROOT, '.backups');
+// Restore points live outside the skill dir (see lib.backupsRoot) so a skill
+// reinstall/update/move can't take the undo history with it.
+const BACKUPS = backupsRoot();
 
 // Small, irreplaceable config files this skill may edit.
 const CONFIGS = [
@@ -19,20 +20,12 @@ const CONFIGS = [
   path.join(CLAUDE_DIR, 'SOUL.md'),
 ];
 
-function ts() {
-  return new Date().toISOString().replace(/[-:]/g, '').replace(/\..+/, '').replace('T', '-');
-}
-
 function create() {
-  const rp = path.join(BACKUPS, ts());
+  const rp = path.join(BACKUPS, runId());
   fs.mkdirSync(path.join(rp, 'removed'), { recursive: true });
   for (const f of CONFIGS) if (exists(f)) fs.copyFileSync(f, path.join(rp, path.basename(f)));
   fs.writeFileSync(path.join(rp, 'removed.json'), '{}');
   fs.appendFileSync(path.join(rp, 'actions.log'), `# restore point ${new Date().toISOString()}\n`);
-  // Ensure backups never ship when the skill is shared.
-  const gi = path.join(ROOT, '.gitignore');
-  const cur = exists(gi) ? fs.readFileSync(gi, 'utf8') : '';
-  if (!cur.split('\n').includes('.backups/')) fs.appendFileSync(gi, '.backups/\n');
   process.stdout.write(rp + '\n');
 }
 

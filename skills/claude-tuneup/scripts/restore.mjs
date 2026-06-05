@@ -4,10 +4,11 @@
 //   node restore.mjs apply <RP>       -> restore configs + move removed items back, print re-add cmds
 import fs from 'node:fs';
 import path from 'node:path';
-import { HOME, CLAUDE_DIR, CLAUDE_JSON, skillRoot, exists, move, readJSON } from './lib.mjs';
+import { CLAUDE_DIR, CLAUDE_JSON, skillRoot, backupsRoot, exists, move, readJSON } from './lib.mjs';
 
-const ROOT = skillRoot(import.meta.url);
-const BACKUPS = path.join(ROOT, '.backups');
+// New restore points live in backupsRoot(); older ones may still sit in the legacy
+// in-skill location. Scan both so a pre-fix backup stays restorable.
+const ROOTS = [backupsRoot(), path.join(skillRoot(import.meta.url), '.backups')];
 
 // Where each snapshotted config goes back to.
 const CONFIG_DEST = {
@@ -20,10 +21,22 @@ const CONFIG_DEST = {
 
 const ls = (p) => { try { return fs.readdirSync(p); } catch { return []; } };
 
+// Collect real restore points across all roots. A restore point is a dir holding a
+// removed.json — this also filters out the pre-restore-* safety snapshots.
+function allPoints() {
+  const out = [];
+  for (const root of ROOTS) {
+    for (const ts of ls(root)) {
+      const rp = path.join(root, ts);
+      if (!exists(path.join(rp, 'removed.json'))) continue;
+      out.push({ ts, rp });
+    }
+  }
+  return out.sort((a, b) => (a.ts < b.ts ? 1 : a.ts > b.ts ? -1 : 0));
+}
+
 function list() {
-  const points = ls(BACKUPS).sort().reverse();
-  const result = points.map(ts => {
-    const rp = path.join(BACKUPS, ts);
+  const result = allPoints().map(({ ts, rp }) => {
     const removed = readJSON(path.join(rp, 'removed.json')) || {};
     let logLines = 0;
     try { logLines = fs.readFileSync(path.join(rp, 'actions.log'), 'utf8').trim().split('\n').length; } catch {}

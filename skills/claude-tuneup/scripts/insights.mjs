@@ -31,10 +31,18 @@ function saveCache(data) {
   } catch {}
 }
 
+const RECURSION_GUARD = 'CLAUDE_TUNEUP_INSIGHTS_RUNNING';
+
 function generate() {
   // Try cache first — insights costs a model call every time
   const cached = loadCache();
   if (cached) return cached;
+
+  // Recursion guard: this spawns `claude` from inside a Claude skill. If we're already
+  // inside such a spawn, refuse — never let insights call itself and fork model calls.
+  if (process.env[RECURSION_GUARD]) {
+    return { ok: false, reason: 'recursion guard: refusing to spawn `claude -p` from inside an insights run' };
+  }
 
   // `claude -p "/insights"` prints a line containing file://....html and opens no browser.
   let stdout = '';
@@ -44,6 +52,7 @@ function generate() {
       encoding: 'utf8',
       timeout: 120000,        // 2-minute max
       killSignal: 'SIGTERM',
+      env: { ...process.env, [RECURSION_GUARD]: '1' },
     });
   } catch (e) {
     stdout = (e.stdout || '').toString();
