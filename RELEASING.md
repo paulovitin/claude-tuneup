@@ -18,29 +18,31 @@ While on `0.x` the API is not frozen: a minor bump may include behavior changes.
 
 ## How to cut a release
 
-1. **Land the work.** Merge the PRs going into the release.
-2. **Update the changelog.** Move entries from `## [Unreleased]` into a new
-   `## [X.Y.Z] - YYYY-MM-DD` section, and add the `compare` / release link
-   references at the bottom. Keep an empty `[Unreleased]` on top.
-3. **Bump `package.json`** `version` to `X.Y.Z`.
-4. **Commit** on `main` (via PR): `chore(release): vX.Y.Z`.
-5. **Tag and push:**
+Releases are **merge-driven** — there is no manual `git tag` step. You ship a
+release by bumping the version on `main`; the workflow does the rest.
 
-   ```bash
-   git tag vX.Y.Z
-   git push origin vX.Y.Z
-   ```
+1. **Land the work.** Merge the feature/fix PRs going into the release.
+2. **Open a release PR** that does two things:
+   - **Changelog:** move entries from `## [Unreleased]` into a new
+     `## [X.Y.Z] - YYYY-MM-DD` section, refresh the `compare` / release link
+     references at the bottom, and leave an empty `[Unreleased]` on top.
+   - **`package.json`:** bump `version` to `X.Y.Z`.
 
-6. The **`release` workflow** (`.github/workflows/release.yml`) fires on the
-   `vX.Y.Z` tag: it runs the tests, extracts the matching `CHANGELOG.md` section
-   via `tools/changelog-section.mjs`, and publishes a GitHub Release
-   with those notes.
+   Commit it as `chore(release): X.Y.Z`.
+3. **Merge the release PR.** That's it.
+
+On the push to `main`, the **`release` workflow** (`.github/workflows/release.yml`)
+reads `package.json`'s version. If no `vX.Y.Z` tag exists yet, it runs the tests,
+extracts the matching `CHANGELOG.md` section via `tools/changelog-section.mjs`,
+creates and pushes the tag, and publishes the GitHub Release with those notes.
+If the version already has a tag (an ordinary merge), it does nothing.
 
 ## Notes
 
-- Tag format is enforced by the workflow filter (`v[0-9]+.[0-9]+.[0-9]+`,
-  plus a `-pre` suffix variant). A tag that doesn't match won't trigger a release.
-- `--verify-tag` ensures the tag exists on the remote before the release is made.
+- A version bumped without a matching `## [X.Y.Z]` changelog section fails the
+  release loudly (the notes step exits non-zero) — keep them in lockstep.
+- Pushing the tag from the workflow does **not** re-trigger it (it only listens on
+  `push: branches: [main]`), so there's no release loop.
 - To preview the notes for a version locally:
 
   ```bash

@@ -1,12 +1,12 @@
 name: release
 
-# Cut a release by pushing a SemVer tag:  git tag v1.2.3 && git push origin v1.2.3
-# The workflow extracts the matching CHANGELOG.md section and publishes a GitHub Release.
+# Merge-driven releases. On every push to main, read the version from package.json:
+# if no tag exists for it yet, the version was just bumped — run tests, tag it, and
+# publish a GitHub Release with notes from the matching CHANGELOG.md section.
+# So: bump CHANGELOG + package.json in a PR, merge it, and the release ships itself.
 on:
   push:
-    tags:
-      - "v[0-9]+.[0-9]+.[0-9]+"
-      - "v[0-9]+.[0-9]+.[0-9]+-*"
+    branches: [main]
 
 permissions:
   contents: write
@@ -16,20 +16,32 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # need full history + tags to know what's already released
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
 
-      # Tests must pass before anything is published.
-      - run: node --test
+      - name: Read package version
+        id: v
+        run: echo "version=$(node -p "JSON.parse(require('node:fs').readFileSync('package.json','utf8')).version")" >> "$GITHUB_OUTPUT"
 
-      - name: Build release notes from CHANGELOG
-        env:
-          TAG: ${{ github.ref_name }}
-        run: node tools/changelog-section.mjs "$TAG" > RELEASE_NOTES.md
-
-      - name: Publish GitHub Release
+      - name: Release if the version has no tag yet
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
-        run: gh release create "$TAG" --title "$TAG" --notes-file RELEASE_NOTES.md --verify-tag
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          set -euo pipefail
+          TAG="v$VERSION"
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "tag $TAG already exists — nothing to release."
+            exit 0
+          fi
+          echo "new version $VERSION — releasing $TAG"
+          # Tests gate the release; a missing changelog section fails loudly.
+          node --test
+          node tools/changelog-section.mjs "$VERSION" > RELEASE_NOTES.md
+          git tag "$TAG"
+          git push origin "$TAG"
+          gh release create "$TAG" --title "$TAG" --notes-file RELEASE_NOTES.md --verify-tag
