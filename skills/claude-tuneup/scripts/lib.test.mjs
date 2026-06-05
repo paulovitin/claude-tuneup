@@ -6,15 +6,13 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { skillRoot, backupsRoot, runId, move, human } from './lib.mjs';
 
-test('skillRoot decodes percent-encoded paths (spaces / unicode)', () => {
-  // file URL for ~/Library/Application Support/.../scripts/lib.mjs
-  const url = 'file:///Users/x/Library/Application%20Support/skills/claude-tuneup/scripts/lib.mjs';
-  assert.equal(skillRoot(url), '/Users/x/Library/Application Support/skills/claude-tuneup');
-});
-
-test('skillRoot round-trips a real path through pathToFileURL', () => {
-  const real = '/tmp/a b/skills/claude-tuneup/scripts/lib.mjs';
-  assert.equal(skillRoot(pathToFileURL(real).href), '/tmp/a b/skills/claude-tuneup');
+test('skillRoot decodes percent-encoded paths (spaces / unicode), cross-OS', () => {
+  // A real install path with a space — e.g. macOS "Application Support". pathToFileURL
+  // percent-encodes the space; skillRoot must decode it back, not resolve to a %20 dir.
+  const base = path.join(os.tmpdir(), 'Application Support', 'skills', 'claude-tuneup');
+  const url = pathToFileURL(path.join(base, 'scripts', 'lib.mjs')).href;
+  assert.ok(url.includes('%20'), 'precondition: the file URL encodes the space');
+  assert.equal(skillRoot(url), base);
 });
 
 test('backupsRoot defaults outside the skill dir, under ~/.claude-tuneup', () => {
