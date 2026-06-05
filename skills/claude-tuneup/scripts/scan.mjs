@@ -3,6 +3,7 @@
 // Touches nothing. Runs on every OS (Node built-ins only).
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { HOME, CLAUDE_DIR, AGENTS_DIR, CLAUDE_JSON, readJSON, exists, dirSize, isEmptyDir, human, MB, out } from './lib.mjs';
 
 const ls = (p) => { try { return fs.readdirSync(p); } catch { return []; } };
@@ -76,12 +77,20 @@ function scanPlugins() {
   };
 }
 
+// A hook file is "referenced" only when its name appears as a whole token in the
+// settings JSON — bounded by a path separator, quote, or whitespace. Plain substring
+// matching falsely tied "a.sh" to a reference to "aa.sh".
+export function hookReferenced(cmds, filename) {
+  const esc = filename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(^|[/"'\\s])${esc}($|["'\\s])`).test(cmds);
+}
+
 function scanHooks() {
   const dir = path.join(CLAUDE_DIR, 'hooks');
   const onDisk = ls(dir).filter(n => !OS_CRUFT.has(n));
   const settings = readJSON(path.join(CLAUDE_DIR, 'settings.json')) || {};
   const cmds = JSON.stringify(settings.hooks || {});
-  const referenced = onDisk.filter(f => cmds.includes(f));
+  const referenced = onDisk.filter(f => hookReferenced(cmds, f));
   return {
     onDisk,
     referencedBySettings: referenced,
@@ -89,9 +98,11 @@ function scanHooks() {
   };
 }
 
-function checkCmdPath(spec) {
+export function checkCmdPath(spec) {
   // spec.command may be a binary path or an interpreter; pull out absolute paths and check them.
-  const blob = [spec?.command, ...(spec?.args || [])].join(' ');
+  // Strip URLs first (https://, npm:, file://...) — a "//host/path" inside a URL is not a
+  // filesystem path and must not be reported as a missing local file.
+  const blob = [spec?.command, ...(spec?.args || [])].join(' ').replace(/\b[a-z][a-z0-9+.-]*:\/\/\S+/gi, ' ');
   const paths = (blob.match(/\/[^\s"']+/g) || []).filter(p => p.includes('/'));
   const missing = paths.filter(p => !exists(p));
   return { missing };
@@ -144,14 +155,19 @@ function scanRootFiles() {
   });
 }
 
-const handled = new Set(['skills', 'plugins', 'hooks', '.backups']);
-out({
-  home: HOME,
-  skills: scanSkills(),
-  plugins: scanPlugins(),
-  hooks: scanHooks(),
-  mcps: scanMCPs(),
-  projects: scanProjects(),
-  stateDirs: scanStateDirs(handled),
-  rootFiles: scanRootFiles(),
-});
+function main() {
+  const handled = new Set(['skills', 'plugins', 'hooks', '.backups']);
+  out({
+    home: HOME,
+    skills: scanSkills(),
+    plugins: scanPlugins(),
+    hooks: scanHooks(),
+    mcps: scanMCPs(),
+    projects: scanProjects(),
+    stateDirs: scanStateDirs(handled),
+    rootFiles: scanRootFiles(),
+  });
+}
+
+// Run the scan only when invoked directly; stay importable (and side-effect-free) for tests.
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();

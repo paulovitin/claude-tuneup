@@ -1,0 +1,8 @@
+{
+  "name": "claude-tuneup",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test skills/claude-tuneup/scripts/*.test.mjs"
+  }
+}

@@ -75,7 +75,7 @@ Carrega a cada sessão via `@SOUL.md`, então cada resposta se ajusta a **você*
 
 - **🔘 Nada é deletado sem confirmação.** Cada escolha é um botão, e toda pergunta tem uma opção *"O que isso faz?"* que explica o item **antes** de você decidir.
 - **🗂️ Histórico de sessão é protegido.** Seus transcripts e estado de sessão são os dados menos substituíveis e **nunca** são deletados em massa. O skill só oferece poda por idade com confirmação explícita por pasta — avisando antes que é permanente e quebra `--resume` e `/insights`.
-- **↩️ Toda execução é reversível.** Configs são snapshotted e itens removidos são *movidos* (nunca `rm`) para um backup em `.backups/<timestamp>/`. Reverta a qualquer momento com `claude-tuneup restore`.
+- **↩️ Toda execução é reversível.** Configs são snapshotted e itens removidos são *movidos* (nunca `rm`) para um backup em `~/.claude-tuneup/backups/<run-id>/` — guardado **fora** do diretório da skill, para que uma atualização ou reinstalação da skill não apague seu histórico de undo (sobrescreva com `$CLAUDE_TUNEUP_STATE`). Reverta a qualquer momento com `claude-tuneup restore`.
 - **🛡️ O restore não sobrescreve.** Antes de reverter, ele tira um snapshot das configs *atuais* (o próprio restore é reversível) e nunca sobrescreve um item mais novo que reassumiu um caminho removido — colisões viram `<path>.restored-<ts>` e são reportadas.
 - **♻️ Sem reclaim inútil.** Artefatos que se regeneram sozinhos (venvs, caches, runtimes) são detectados — o skill aponta a solução real (desabilitar o plugin dono) em vez de deletar algo que só vai ser recriado.
 - **🔒 Privacidade.** O relatório `/insights` é *seu* dado local — lido ao vivo para gerar sugestões, nunca copiado para o skill ou compartilhado. Backups são git-ignorados.

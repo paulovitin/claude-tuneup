@@ -76,7 +76,7 @@ Routing:
     claude-tuneup --dry-run       → scan + report what would change, touch nothing
     claude-tuneup help            → show this card
 
-  Backups: every run snapshots configs + moved items to <skill dir>/.backups/<ts>/.
+  Backups: every run snapshots configs + moved items to ~/.claude-tuneup/backups/<run-id>/.
   Undo anytime with "claude-tuneup restore".
   ```
 - **`restore`** → undo a previous run, even in a later session. Do NOT run any cleanup step:
@@ -95,15 +95,15 @@ Always finish a run with STEP 11 (summary) scoped to whatever ran. Announce each
 
 ### STEP 0.5: Restore point (before ANY change)
 
-A tune-up must be undoable. Before the first mutation of the run, create a timestamped restore point **inside this skill's own directory** and log every action into it.
+A tune-up must be undoable. Before the first mutation of the run, create a restore point and log every action into it.
 
-`SKILL_DIR` = the base directory of this skill (shown when the skill loads, e.g. `~/.agents/skills/claude-tuneup`). All backups live under `$SKILL_DIR/.backups/<ts>/` — self-contained, travels with the skill, nothing scattered across `~/.claude`.
+Backups live in a **stable location outside the skill** — `~/.claude-tuneup/backups/<run-id>/` (override with `$CLAUDE_TUNEUP_STATE`). This is on purpose: a skill update, reinstall, or move between `~/.claude/skills` and `~/.agents/skills` must **not** take the undo history with it. `restore` still scans the legacy in-skill `.backups/` too, so older restore points keep working.
 
 ```bash
 RP=$(node "$SKILL_DIR/scripts/backup.mjs" create)   # snapshots configs, prints the restore-point path
 ```
 
-`backup.mjs create` snapshots the small irreplaceable config files (`.claude.json`, `settings*.json`, `CLAUDE.md`, `SOUL.md`), seeds `actions.log` + `removed.json`, and ensures `.backups/` is git-ignored so backups never leak when the skill is shared.
+`backup.mjs create` snapshots the small irreplaceable config files (`.claude.json`, `settings*.json`, `CLAUDE.md`, `SOUL.md`), seeds `actions.log` + `removed.json`, and names the restore point with a collision-proof run id (so two runs in the same second never clobber each other).
 
 Deletion policy:
 - **Unique / irreplaceable** (real skills, project data, configs, anything the dev can't easily regenerate) → `node "$SKILL_DIR/scripts/backup.mjs" stash "$RP" <path>` (moves it into the restore point, logged + restorable), never `rm`.
@@ -377,7 +377,7 @@ Report:
 - `SOUL.md` created + wired (if the dev opted in)
 - Pending suggestions
 
-**How to undo** — always show this, pointing at the run's restore point `$RP` (`$SKILL_DIR/.backups/<ts>/`):
+**How to undo** — always show this, pointing at the run's restore point `$RP` (`~/.claude-tuneup/backups/<run-id>/`):
 - Restore a config: `cp $RP/<file> ~/.claude/` (or `~/` for `.claude.json`).
 - Recover a removed item: it's in `$RP/removed/` — move it back.
 - Re-add a marketplace/plugin: see the exact command in `$RP/actions.log`.
@@ -385,7 +385,7 @@ Report:
 
 Then, via AskUserQuestion, ask if the result looks good:
 - **"Looks good — purge restore point"** → `rm -rf $RP` (frees the space held by removed items).
-- **"Keep backup for now"** → leave `$RP`; mention old restore points under `$SKILL_DIR/.backups/` can be pruned later.
+- **"Keep backup for now"** → leave `$RP`; mention old restore points under `~/.claude-tuneup/backups/` can be pruned later.
 - **"Undo everything"** → restore configs from `$RP`, move all of `$RP/removed/` back, replay re-add commands from `actions.log`.
 
 ---

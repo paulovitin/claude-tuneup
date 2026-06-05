@@ -2,16 +2,36 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import crypto from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 
 export const HOME = os.homedir();
 export const CLAUDE_DIR = path.join(HOME, '.claude');
 export const AGENTS_DIR = path.join(HOME, '.agents');
 export const CLAUDE_JSON = path.join(HOME, '.claude.json');
 
-// Skill root = parent of this script's dir (.../claude-tuneup/scripts/lib.mjs -> .../claude-tuneup)
+// Skill root = parent of this script's dir (.../claude-tuneup/scripts/lib.mjs -> .../claude-tuneup).
+// fileURLToPath (not new URL().pathname) so install paths with spaces/unicode — e.g.
+// "~/Library/Application Support" — decode correctly instead of resolving to a %20-mangled dir.
 export function skillRoot(metaUrl) {
-  const here = path.dirname(new URL(metaUrl).pathname);
+  const here = path.dirname(fileURLToPath(metaUrl));
   return path.dirname(here);
+}
+
+// Where restore points live. OUTSIDE the skill dir on purpose: a skill update,
+// reinstall, or a move between ~/.claude/skills and ~/.agents/skills must not wipe
+// the user's only undo. Override with $CLAUDE_TUNEUP_STATE.
+export function backupsRoot() {
+  const override = process.env.CLAUDE_TUNEUP_STATE;
+  const base = override ? override : path.join(HOME, '.claude-tuneup');
+  return path.join(base, 'backups');
+}
+
+// Collision-proof, lexically sortable run id: second-precision stamp + random suffix.
+// Two runs in the same second no longer resolve to the same backup dir.
+export function runId(date = new Date()) {
+  const stamp = date.toISOString().replace(/[-:]/g, '').replace(/\..+/, '').replace('T', '-');
+  return `${stamp}-${crypto.randomBytes(3).toString('hex')}`;
 }
 
 export function readJSON(p) {
@@ -50,11 +70,14 @@ export function human(bytes) {
 export const MB = 1024 * 1024;
 
 // Cross-OS move: try rename, fall back to copy+remove across devices.
+// On the cross-device path, verify the copy landed before removing the source —
+// never delete the original on the strength of an unchecked cpSync.
 export function move(src, dest) {
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   try { fs.renameSync(src, dest); }
   catch {
     fs.cpSync(src, dest, { recursive: true });
+    if (!exists(dest)) throw new Error(`move: copy to ${dest} failed; left ${src} intact`);
     fs.rmSync(src, { recursive: true, force: true });
   }
 }
