@@ -2,19 +2,63 @@
 // Run Claude Code's built-in /insights headlessly (no browser) and extract the useful
 // sections of the generated HTML report. Read-only. Cross-OS.
 // The report is the dev's own local data — printed for live use, never stored by this skill.
+//
+// CACHE: Results are cached to avoid costly model calls on repeated runs.
+// Cache lives at ~/.claude/.claude-tuneup-insights-cache.json and expires after 1 hour.
 import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
 import { execFileSync } from 'node:child_process';
 
+const CACHE_FILE = path.join(os.homedir(), '.claude', '.claude-tuneup-insights-cache.json');
+const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+function loadCache() {
+  try {
+    const raw = fs.readFileSync(CACHE_FILE, 'utf8');
+    const cached = JSON.parse(raw);
+    if (Date.now() - cached.ts < CACHE_TTL_MS) {
+      return cached.data;
+    }
+  } catch {}
+  return null;
+}
+
+function saveCache(data) {
+  try {
+    fs.mkdirSync(path.dirname(CACHE_FILE), { recursive: true });
+    fs.writeFileSync(CACHE_FILE, JSON.stringify({ ts: Date.now(), data }, null, 2));
+  } catch {}
+}
+
 function generate() {
+  // Try cache first — insights costs a model call every time
+  const cached = loadCache();
+  if (cached) return cached;
+
   // `claude -p "/insights"` prints a line containing file://....html and opens no browser.
   let stdout = '';
+  const start = Date.now();
   try {
-    stdout = execFileSync('claude', ['-p', '/insights'], { encoding: 'utf8', timeout: 120000 });
+    stdout = execFileSync('claude', ['-p', '/insights'], {
+      encoding: 'utf8',
+      timeout: 120000,        // 2-minute max
+      killSignal: 'SIGTERM',
+    });
   } catch (e) {
     stdout = (e.stdout || '').toString();
+    const elapsed = Date.now() - start;
+    // If it timed out or crashed without producing output, return a clear reason
+    if (!stdout) {
+      return { ok: false, reason: `insights timed out after ${elapsed / 1000}s (no output). Try again later.` };
+    }
   }
   const m = stdout.match(/file:\/\/(\S+\.html)/);
-  return m ? decodeURIComponent(m[1]) : null;
+  const reportPath = m ? decodeURIComponent(m[1]) : null;
+  if (!reportPath || !fs.existsSync(reportPath)) {
+    return { ok: false, reason: 'no report (needs session history, or claude -p unavailable)' };
+  }
+  return { ok: true, report: reportPath };
 }
 
 function section(html, anchorRe) {
@@ -27,12 +71,22 @@ function section(html, anchorRe) {
     .replace(/\s+/g, ' ').trim();
 }
 
-const report = generate();
-if (!report || !fs.existsSync(report)) {
-  process.stdout.write(JSON.stringify({ ok: false, reason: 'no report (needs session history, or claude -p unavailable)' }, null, 2) + '\n');
+// Load or generate
+const raw = generate();
+
+// If it came from cache with sections already parsed, return it directly
+if (raw.sections) {
+  process.stdout.write(JSON.stringify(raw, null, 2) + '\n');
   process.exit(0);
 }
-const html = fs.readFileSync(report, 'utf8');
+
+if (!raw.ok) {
+  process.stdout.write(JSON.stringify(raw, null, 2) + '\n');
+  process.exit(0);
+}
+
+// Parse HTML sections
+const html = fs.readFileSync(raw.report, 'utf8');
 const want = [
   ['suggestedClaudeMd', 'Suggested CLAUDE\\.md Additions'],
   ['whatYouWorkOn', 'What You Work On'],
@@ -44,4 +98,7 @@ for (const [key, anchor] of want) {
   const s = section(html, anchor);
   if (s) sections[key] = s.slice(0, 2000);
 }
-process.stdout.write(JSON.stringify({ ok: true, report, sections }, null, 2) + '\n');
+
+const result = { ok: true, report: raw.report, sections };
+saveCache(result);
+process.stdout.write(JSON.stringify(result, null, 2) + '\n');

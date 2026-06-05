@@ -73,6 +73,7 @@ Routing:
     claude-tuneup 6,7             → run specific steps
     claude-tuneup claude.md soul.md → combine groups
     claude-tuneup restore         → undo a previous run from a backup
+    claude-tuneup --dry-run       → scan + report what would change, touch nothing
     claude-tuneup help            → show this card
 
   Backups: every run snapshots configs + moved items to <skill dir>/.backups/<ts>/.
@@ -84,6 +85,7 @@ Routing:
   3. **Warn before applying.** A restore copies *old* configs back over the current ones. `.claude.json` carries live state (projects, session pointers) — so restoring it can drop projects/sessions created **after** the backup. Say this explicitly and confirm. The script protects you two ways: it first saves the **current** configs into a `pre-restore-…` folder (so the restore is itself reversible), and it never overwrites a newer item that re-took a removed path (those land at `<path>.restored-<ts>` instead).
   4. Apply: `node "$SKILL_DIR/scripts/restore.mjs" apply <RP>` — copies snapshotted configs back, moves removed items to their original paths, and prints `restored`, `collisions` (items that couldn't take their original path and where they went), `preRestoreSnapshot` (the pre-restore safety copy), and `manualReAdd` (marketplaces/plugins for you to replay).
   5. Validate restored JSON (`python3 -m json.tool ~/.claude.json`). Report `collisions` to the dev so they resolve any `.restored-<ts>` items by hand. Offer to keep or purge the restore point + the pre-restore snapshot afterward.
+- **`--dry-run`** → run STEP 0.5 backup first (to snapshot configs for comparison), then run STEPS 1–8 and 9 in **read-only mode**: scan, show what would be removed/consolidated/changed, include sizes, but **ask zero delete questions** and touch nothing. Skip stash/move/rm entirely. Report "DRY RUN — nothing was changed" in the summary. Good for first-time users.
 - **Argument given** (a group/steps) → run exactly that. Accept group names (`cleanup`, `claude.md`, `soul.md`, `summary`), step numbers, or ranges (`1-3`, `step 5`, `6,7`). Then run STEP 11. Be lenient on aliases (`insights` → `claude.md`, `soul` → `soul.md`).
 - **No argument** → offer the choice via AskUserQuestion before touching anything: options = "Full tune-up (1–11)", "Cleanup only (1–8)", "CLAUDE.md from /insights (9)", "Build SOUL.md (10)". Let them pick one (multiSelect ok for combining claude.md + soul.md).
 
@@ -288,6 +290,8 @@ Run it headless and get the sections as JSON (no browser; costs one model call; 
 ```bash
 node "$SKILL_DIR/scripts/insights.mjs"
 ```
+
+**Note:** insights are cached for 1 hour (cache at `~/.claude/.claude-tuneup-insights-cache.json`). This avoids wasting a model call on repeated runs within the same session.
 
 It returns `{ ok, report, sections: { suggestedClaudeMd, whatYouWorkOn, howYouUse, friction } }`, or `{ ok:false, reason }` when there's no history / `claude -p` is unavailable. Use the report's "Suggested CLAUDE.md Additions" as the spine of your proposal; cross-reference "What You Work On" / friction for domain and pain points.
 

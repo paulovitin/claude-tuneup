@@ -3,7 +3,7 @@
 // Touches nothing. Runs on every OS (Node built-ins only).
 import fs from 'node:fs';
 import path from 'node:path';
-import { HOME, CLAUDE_DIR, CLAUDE_JSON, readJSON, exists, dirSize, isEmptyDir, human, MB, out } from './lib.mjs';
+import { HOME, CLAUDE_DIR, AGENTS_DIR, CLAUDE_JSON, readJSON, exists, dirSize, isEmptyDir, human, MB, out } from './lib.mjs';
 
 const ls = (p) => { try { return fs.readdirSync(p); } catch { return []; } };
 const lstat = (p) => { try { return fs.lstatSync(p); } catch { return null; } };
@@ -28,17 +28,35 @@ function ageSpan(dir) {
 }
 
 function scanSkills() {
-  const dir = path.join(CLAUDE_DIR, 'skills');
-  return ls(dir).filter(n => !OS_CRUFT.has(n)).map(name => {
-    const p = path.join(dir, name);
-    const st = lstat(p);
-    if (st?.isSymbolicLink()) {
-      const target = fs.readlinkSync(p);
-      return { name, type: 'symlink', target, broken: !exists(path.resolve(dir, target)) };
+  // Skills can live in ~/.claude/skills/ (older installs) or ~/.agents/skills/ (newer Claude Code).
+  // Scan both and return them with their origin so the agent can consolidate.
+  const dirs = [
+    { origin: 'claude', dir: path.join(CLAUDE_DIR, 'skills') },
+    { origin: 'agents', dir: path.join(AGENTS_DIR, 'skills') },
+  ];
+  const results = [];
+  for (const { origin, dir } of dirs) {
+    for (const name of ls(dir).filter(n => !OS_CRUFT.has(n))) {
+      const p = path.join(dir, name);
+      const st = lstat(p);
+      const entry = { name, origin };
+      if (st?.isSymbolicLink()) {
+        entry.type = 'symlink';
+        entry.target = fs.readlinkSync(p);
+        entry.broken = !exists(path.resolve(dir, entry.target));
+      } else if (st?.isDirectory()) {
+        entry.type = 'dir';
+        entry.size = human(dirSize(p));
+      } else {
+        entry.type = 'file';
+      }
+      // Check if the other dir also has this skill (duplicate)
+      const otherDir = origin === 'claude' ? dirs[1].dir : dirs[0].dir;
+      entry.alsoInOther = exists(path.join(otherDir, name));
+      results.push(entry);
     }
-    if (st?.isDirectory()) return { name, type: 'dir', size: human(dirSize(p)) };
-    return { name, type: 'file' };
-  });
+  }
+  return results;
 }
 
 function scanPlugins() {
@@ -126,7 +144,7 @@ function scanRootFiles() {
   });
 }
 
-const handled = new Set(['skills', 'plugins', 'hooks']);
+const handled = new Set(['skills', 'plugins', 'hooks', '.backups']);
 out({
   home: HOME,
   skills: scanSkills(),

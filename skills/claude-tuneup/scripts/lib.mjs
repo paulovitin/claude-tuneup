@@ -5,6 +5,7 @@ import os from 'node:os';
 
 export const HOME = os.homedir();
 export const CLAUDE_DIR = path.join(HOME, '.claude');
+export const AGENTS_DIR = path.join(HOME, '.agents');
 export const CLAUDE_JSON = path.join(HOME, '.claude.json');
 
 // Skill root = parent of this script's dir (.../claude-tuneup/scripts/lib.mjs -> .../claude-tuneup)
