@@ -14,6 +14,7 @@ it asks before every change and explains anything you don't recognize.
 [![Install](https://img.shields.io/badge/npx_skills_add-paulovitin%2Fclaude--tuneup-000?style=for-the-badge&logo=anthropic&logoColor=white)](https://github.com/paulovitin/claude-tuneup)
 [![License: MIT](https://img.shields.io/badge/License-MIT-22c55e?style=for-the-badge)](#-license)
 [![Claude Code](https://img.shields.io/badge/Claude_Code-skill-d97757?style=for-the-badge)](https://claude.com/claude-code)
+[![pt-BR](https://img.shields.io/badge/README-pt--BR-30A3DC?style=for-the-badge)](README.pt-BR.md)
 
 </div>
 
@@ -41,6 +42,7 @@ claude-tuneup cleanup            # run a group by name
 claude-tuneup 1-3                # run a step range
 claude-tuneup 6,7                # run specific steps
 claude-tuneup claude.md soul.md  # combine groups
+claude-tuneup --dry-run          # scan + report what would change, touch nothing
 claude-tuneup help               # list groups + triggers
 claude-tuneup restore            # undo a previous run from a backup
 ```
@@ -91,7 +93,7 @@ skills/claude-tuneup/
    ├─ scan.mjs         # read-only discovery → JSON
    ├─ backup.mjs       # restore point + snapshot + stash
    ├─ restore.mjs      # list / apply a restore point
-   └─ insights.mjs     # run /insights headless, extract sections
+   └─ insights.mjs     # run /insights headless, extract sections (cached 1h)
 skills.sh.json         # registry manifest
 ```
 
