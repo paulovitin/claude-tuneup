@@ -14,6 +14,7 @@ ele pergunta antes de cada alteração e explica qualquer coisa que você não r
 [![Instalar](https://img.shields.io/badge/npx_skills_add-paulovitin%2Fclaude--tuneup-000?style=for-the-badge&logo=anthropic&logoColor=white)](https://github.com/paulovitin/claude-tuneup)
 [![Licença: MIT](https://img.shields.io/badge/Licen%C3%A7a-MIT-22c55e?style=for-the-badge)](#-licença)
 [![Claude Code](https://img.shields.io/badge/Claude_Code-skill-d97757?style=for-the-badge)](https://claude.com/claude-code)
+[![EN](https://img.shields.io/badge/README-English-000?style=for-the-badge)](README.md)
 
 </div>
 
