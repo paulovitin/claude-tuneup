@@ -1,0 +1,11 @@
+{
+  "name": "claude-tuneup",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Tune up a Claude Code install — clean, optimize, and give it a soul.",
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test"
+  }
+}
