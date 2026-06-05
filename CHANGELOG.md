@@ -11,6 +11,8 @@ fixes only.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-05
+
 ### Changed
 
 - **Backups now live outside the skill dir** — `~/.claude-tuneup/backups/<run-id>/`
@@ -44,5 +46,6 @@ fixes only.
   undoable runs via restore points; session-history protection; `--dry-run`;
   EN + pt-BR READMEs.
 
-[Unreleased]: https://github.com/paulovitin/claude-tuneup/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/paulovitin/claude-tuneup/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/paulovitin/claude-tuneup/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/paulovitin/claude-tuneup/releases/tag/v0.1.0
