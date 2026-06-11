@@ -5,7 +5,9 @@ import os from 'node:os';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
-export const HOME = os.homedir();
+// HOME is overridable via $CLAUDE_TUNEUP_HOME so the test suite (and any sandbox)
+// can point every script at a throwaway tree instead of the real install.
+export const HOME = process.env.CLAUDE_TUNEUP_HOME || os.homedir();
 export const CLAUDE_DIR = path.join(HOME, '.claude');
 export const AGENTS_DIR = path.join(HOME, '.agents');
 export const CLAUDE_JSON = path.join(HOME, '.claude.json');
@@ -18,13 +20,16 @@ export function skillRoot(metaUrl) {
   return path.dirname(here);
 }
 
-// Where restore points live. OUTSIDE the skill dir on purpose: a skill update,
-// reinstall, or a move between ~/.claude/skills and ~/.agents/skills must not wipe
-// the user's only undo. Override with $CLAUDE_TUNEUP_STATE.
+// Persistent state lives OUTSIDE the skill dir on purpose: a skill update, reinstall,
+// or a move between ~/.claude/skills and ~/.agents/skills must not wipe the user's
+// undo history or caches. Override the whole base with $CLAUDE_TUNEUP_STATE.
+export function stateBase() {
+  return process.env.CLAUDE_TUNEUP_STATE || path.join(HOME, '.claude-tuneup');
+}
+
+// Where restore points live (under the state base).
 export function backupsRoot() {
-  const override = process.env.CLAUDE_TUNEUP_STATE;
-  const base = override ? override : path.join(HOME, '.claude-tuneup');
-  return path.join(base, 'backups');
+  return path.join(stateBase(), 'backups');
 }
 
 // Collision-proof, lexically sortable run id: second-precision stamp + random suffix.
@@ -72,13 +77,31 @@ export const MB = 1024 * 1024;
 // Cross-OS move: try rename, fall back to copy+remove across devices.
 // On the cross-device path, verify the copy landed before removing the source —
 // never delete the original on the strength of an unchecked cpSync.
+// verbatimSymlinks keeps links as links instead of inlining their targets.
 export function move(src, dest) {
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   try { fs.renameSync(src, dest); }
   catch {
-    fs.cpSync(src, dest, { recursive: true });
+    fs.cpSync(src, dest, { recursive: true, verbatimSymlinks: true });
     if (!exists(dest)) throw new Error(`move: copy to ${dest} failed; left ${src} intact`);
     fs.rmSync(src, { recursive: true, force: true });
+  }
+}
+
+// Best-effort permission tightening. Backups can hold ~/.claude.json, which may carry
+// tokens/keys — keep snapshots owner-only. No-op-ish on Windows; never fatal.
+export function restrict(p, mode = 0o600) {
+  try { fs.chmodSync(p, mode); } catch {}
+}
+
+// Directory link with a Windows-friendly fallback: plain dir symlinks need Developer
+// Mode / admin on Windows, but junctions don't. Returns the kind that was created.
+export function linkDir(target, linkPath) {
+  const abs = path.resolve(target);
+  try { fs.symlinkSync(abs, linkPath, 'dir'); return 'symlink'; }
+  catch (e) {
+    if (process.platform === 'win32') { fs.symlinkSync(abs, linkPath, 'junction'); return 'junction'; }
+    throw e;
   }
 }
 

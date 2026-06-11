@@ -3,15 +3,19 @@
 // sections of the generated HTML report. Read-only. Cross-OS.
 // The report is the dev's own local data — printed for live use, never stored by this skill.
 //
+//   node insights.mjs              -> cached result if fresh, else generate
+//   node insights.mjs --no-cache   -> force a fresh run (one model call)
+//
 // CACHE: Results are cached to avoid costly model calls on repeated runs.
 // Cache lives at ~/.claude/.claude-tuneup-insights-cache.json and expires after 1 hour.
 import fs from 'node:fs';
 import path from 'node:path';
-import os from 'node:os';
 import { execFileSync } from 'node:child_process';
+import { CLAUDE_DIR } from './lib.mjs';
 
-const CACHE_FILE = path.join(os.homedir(), '.claude', '.claude-tuneup-insights-cache.json');
+const CACHE_FILE = path.join(CLAUDE_DIR, '.claude-tuneup-insights-cache.json');
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+const NO_CACHE = process.argv.includes('--no-cache');
 
 function loadCache() {
   try {
@@ -35,8 +39,10 @@ const RECURSION_GUARD = 'CLAUDE_TUNEUP_INSIGHTS_RUNNING';
 
 function generate() {
   // Try cache first — insights costs a model call every time
-  const cached = loadCache();
-  if (cached) return cached;
+  if (!NO_CACHE) {
+    const cached = loadCache();
+    if (cached) return cached;
+  }
 
   // Recursion guard: this spawns `claude` from inside a Claude skill. If we're already
   // inside such a spawn, refuse — never let insights call itself and fork model calls.
@@ -109,5 +115,11 @@ for (const [key, anchor] of want) {
 }
 
 const result = { ok: true, report: raw.report, sections };
-saveCache(result);
+// Empty sections usually mean the /insights HTML layout changed under us. Don't cache
+// the miss (a retry after a fix should re-parse), and point the agent at the raw file.
+if (Object.keys(sections).length === 0) {
+  result.note = 'No known sections matched — the /insights HTML format may have changed. Read the report file directly and extract "Suggested CLAUDE.md Additions" by hand.';
+} else {
+  saveCache(result);
+}
 process.stdout.write(JSON.stringify(result, null, 2) + '\n');
