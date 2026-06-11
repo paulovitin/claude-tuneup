@@ -213,3 +213,44 @@ test('validate-json passes good JSON and fails broken JSON with a useful error',
   assert.ok(failed, 'broken JSON must exit non-zero');
   fs.rmSync(home, { recursive: true, force: true });
 });
+
+// --- AGENTS.md bridge (v0.4.0) ---
+
+test('scan --section memory: drift detected, then cleared by the @AGENTS.md shim', () => {
+  const home = makeHome();
+  const claude = path.join(home, '.claude');
+  const six = Array.from({ length: 6 }, (_, i) => `- rule ${i}`).join('\n');
+  fs.writeFileSync(path.join(claude, 'CLAUDE.md'), six);
+  fs.writeFileSync(path.join(claude, 'AGENTS.md'), six + '\n- diverged');
+  let { memory } = runJSON(home, 'scan.mjs', '--section', 'memory');
+  assert.equal(memory.drift, true, 'two substantive, unlinked files = drift');
+  assert.equal(memory.linkStyle, 'none');
+
+  // The recommended fix: CLAUDE.md becomes a shim importing the shared truth.
+  fs.writeFileSync(path.join(claude, 'CLAUDE.md'), '@AGENTS.md\n@SOUL.md\n- claude-only: prefer bun\n');
+  fs.writeFileSync(path.join(claude, 'SOUL.md'), '- tone: dry\n');
+  ({ memory } = runJSON(home, 'scan.mjs', '--section', 'memory'));
+  assert.equal(memory.drift, false);
+  assert.equal(memory.linkStyle, 'import');
+  assert.equal(memory.importsSoul, true);
+  assert.ok(memory.combinedApproxTokens > memory.files['CLAUDE.md'].approxTokens,
+    'combined counts the imported files too');
+
+  // And the classifier protects it: AGENTS.md is config, not cleanup fodder.
+  const { rootFiles } = runJSON(home, 'scan.mjs', '--section', 'rootFiles');
+  assert.equal(rootFiles.find(f => f.name === 'AGENTS.md').class, 'config-keep');
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('AGENTS.md is snapshotted and restored like the other configs', () => {
+  const home = makeHome();
+  const claude = path.join(home, '.claude');
+  const agents = path.join(claude, 'AGENTS.md');
+  fs.writeFileSync(agents, '# shared truth v1\n');
+  const rp = run(home, 'backup.mjs', 'create').trim();
+  assert.ok(fs.existsSync(path.join(rp, 'AGENTS.md')), 'snapshot includes AGENTS.md');
+  fs.writeFileSync(agents, '# botched edit v2\n');
+  runJSON(home, 'restore.mjs', 'apply', rp, '--configs-only');
+  assert.equal(fs.readFileSync(agents, 'utf8'), '# shared truth v1\n');
+  fs.rmSync(home, { recursive: true, force: true });
+});

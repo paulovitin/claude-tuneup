@@ -67,3 +67,65 @@ test('ageSpan dates files below project dirs, not the dirs themselves', () => {
   assert.equal(span.oldest, '2024-02-01', 'oldest reflects the old session file');
   fs.rmSync(root, { recursive: true, force: true });
 });
+
+// --- AGENTS.md bridge (v0.4.0) ---
+import { parseImports, analyzeMemory } from './scan.mjs';
+
+test('parseImports finds inline and own-line imports, trims punctuation, ignores emails', () => {
+  const text = [
+    'See @README for project overview.',
+    '@AGENTS.md',
+    '- git workflow @docs/git-instructions.md, then commit',
+    'mail me at foo@bar.com',
+    '(@~/.claude/SOUL.md)',
+  ].join('\n');
+  assert.deepEqual(parseImports(text), ['README', 'AGENTS.md', 'docs/git-instructions.md', '~/.claude/SOUL.md']);
+});
+
+const LINES_6 = Array.from({ length: 6 }, (_, i) => `- rule ${i}`).join('\n');
+
+test('analyzeMemory: @AGENTS.md import links the files — no drift, tokens combined', () => {
+  const m = analyzeMemory({
+    claude: { exists: true, text: '@AGENTS.md\n@SOUL.md\n- claude-only delta\n' },
+    agents: { exists: true, text: LINES_6 },
+    soul: { exists: true, text: '- blunt tone\n' },
+  });
+  assert.equal(m.linkStyle, 'import');
+  assert.equal(m.drift, false);
+  assert.equal(m.importsSoul, true);
+  const f = m.files;
+  assert.equal(m.combinedApproxTokens,
+    f['CLAUDE.md'].approxTokens + f['AGENTS.md'].approxTokens + f['SOUL.md'].approxTokens,
+    'imports load at launch, so the budget is the sum');
+});
+
+test('analyzeMemory: both files substantive and unlinked => drift', () => {
+  const m = analyzeMemory({
+    claude: { exists: true, text: LINES_6 },
+    agents: { exists: true, text: LINES_6 + '\n- diverged' },
+    soul: { exists: false },
+  });
+  assert.equal(m.linkStyle, 'none');
+  assert.equal(m.drift, true, 'silent duplication must be flagged');
+});
+
+test('analyzeMemory: a tiny CLAUDE.md next to AGENTS.md is not drift', () => {
+  const m = analyzeMemory({
+    claude: { exists: true, text: '# see AGENTS\n' }, // < 5 content lines
+    agents: { exists: true, text: LINES_6 },
+    soul: { exists: false },
+  });
+  assert.equal(m.drift, false);
+});
+
+test('analyzeMemory: symlink counts as linked and is not double-counted', () => {
+  const m = analyzeMemory({
+    claude: { exists: true, text: LINES_6, symlinkToAgents: true },
+    agents: { exists: true, text: LINES_6 },
+    soul: { exists: false },
+  });
+  assert.equal(m.linkStyle, 'symlink');
+  assert.equal(m.drift, false);
+  assert.equal(m.combinedApproxTokens, m.files['CLAUDE.md'].approxTokens,
+    'CLAUDE.md *is* AGENTS.md — counting both would double it');
+});

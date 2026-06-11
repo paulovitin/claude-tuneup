@@ -17,6 +17,7 @@ const CONFIGS = [
   path.join(CLAUDE_DIR, 'settings.json'),
   path.join(CLAUDE_DIR, 'settings.local.json'),
   path.join(CLAUDE_DIR, 'CLAUDE.md'),
+  path.join(CLAUDE_DIR, 'AGENTS.md'),
   path.join(CLAUDE_DIR, 'SOUL.md'),
 ];
 

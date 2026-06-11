@@ -211,8 +211,81 @@ function scanRootFiles() {
     else if (/^history\.jsonl$/.test(name)) cls = 'session-history';
     else if (/\.(bak|old)$|\.backup/.test(name)) cls = 'stale-backup';
     else if (/-cache\.json$|result.*\.json$/.test(name)) cls = 'regenerable';
-    else if (/^(CLAUDE|SOUL)\.md$|^settings.*\.json$/.test(name)) cls = 'config-keep';
+    else if (/^(CLAUDE|SOUL|AGENTS)\.md$|^settings.*\.json$/.test(name)) cls = 'config-keep';
     return { name, class: cls };
+  });
+}
+
+// CLAUDE.md import syntax: `@path/to/file`, inline or on its own line (both are
+// documented). An import token is an @ preceded by start-of-line, whitespace or "(",
+// followed by a path — so emails (foo@bar.com) never match. Trailing sentence
+// punctuation is trimmed; a real extension dot is interior, so it survives.
+export function parseImports(text) {
+  const out = [];
+  const re = /(^|[\s(])@([\w~][\w~./\\-]*)/gm;
+  let m;
+  while ((m = re.exec(text))) {
+    const p = m[2].replace(/[.,;:)'"!?]+$/, '');
+    if (p) out.push(p);
+  }
+  return out;
+}
+
+// Pure core of the memory analysis (FS-free, unit-testable).
+// files: { claude|agents|soul: { exists, text?, symlinkToAgents? } }
+// Computes how the user-level memory files relate:
+//   linkStyle  — how CLAUDE.md reaches AGENTS.md: 'import' | 'symlink' | 'none'
+//   drift      — both files carry real content and NOTHING links them (silent duplication)
+//   combinedApproxTokens — what actually loads each session (imports load at launch too)
+export function analyzeMemory(files) {
+  const info = (f) => {
+    if (!f?.exists) return { exists: false };
+    const text = f.text || '';
+    const trimmed = text.split('\n').map(l => l.trim()).filter(Boolean);
+    return {
+      exists: true,
+      lines: text.split('\n').length,
+      approxTokens: Math.round(text.length / 4),
+      // Lines that are real instructions — not blank, not a bare @import.
+      contentLines: trimmed.filter(t => !/^@\S+$/.test(t)).length,
+    };
+  };
+  const claude = info(files.claude), agents = info(files.agents), soul = info(files.soul);
+  const imports = files.claude?.exists ? parseImports(files.claude.text || '') : [];
+  const base = (p) => p.split(/[\\/]/).pop();
+  const importsAgents = imports.some(p => base(p) === 'AGENTS.md');
+  const importsSoul = imports.some(p => base(p) === 'SOUL.md');
+  const linkStyle = files.claude?.symlinkToAgents ? 'symlink' : importsAgents ? 'import' : 'none';
+  const drift = !!(claude.exists && agents.exists && linkStyle === 'none'
+    && claude.contentLines >= 5 && agents.contentLines >= 5);
+  // Symlink: CLAUDE.md *is* AGENTS.md, so its tokens already count — don't double it.
+  const combinedApproxTokens =
+    (claude.approxTokens || 0)
+    + (linkStyle === 'import' && agents.exists ? agents.approxTokens : 0)
+    + (importsSoul && soul.exists ? soul.approxTokens : 0);
+  return {
+    files: { 'CLAUDE.md': claude, 'AGENTS.md': agents, 'SOUL.md': soul },
+    imports, importsAgents, importsSoul, linkStyle, drift, combinedApproxTokens,
+  };
+}
+
+// User-level memory files (~/.claude). Project-level AGENTS.md follows the same
+// pattern but lives in repos — outside a global tune-up's scope.
+function scanMemory() {
+  const claudePath = path.join(CLAUDE_DIR, 'CLAUDE.md');
+  const agentsPath = path.join(CLAUDE_DIR, 'AGENTS.md');
+  const soulPath = path.join(CLAUDE_DIR, 'SOUL.md');
+  let symlinkToAgents = false;
+  const st = lstat(claudePath);
+  if (st?.isSymbolicLink()) {
+    try { symlinkToAgents = fs.realpathSync(claudePath) === fs.realpathSync(agentsPath); } catch {}
+  }
+  const read = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return ''; } };
+  const f = (p, extra = {}) => exists(p) ? { exists: true, text: read(p), ...extra } : { exists: false };
+  return analyzeMemory({
+    claude: f(claudePath, { symlinkToAgents }),
+    agents: f(agentsPath),
+    soul: f(soulPath),
   });
 }
 
@@ -239,6 +312,7 @@ function main() {
     stateDirs: () => scanStateDirs(handled),
     rootFiles: scanRootFiles,
     usage: scanUsage,
+    memory: scanMemory,
   };
   const argv = process.argv.slice(2);
   const i = argv.indexOf('--section');

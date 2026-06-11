@@ -17,6 +17,7 @@ const CONFIG_DEST = {
   'settings.json': path.join(CLAUDE_DIR, 'settings.json'),
   'settings.local.json': path.join(CLAUDE_DIR, 'settings.local.json'),
   'CLAUDE.md': path.join(CLAUDE_DIR, 'CLAUDE.md'),
+  'AGENTS.md': path.join(CLAUDE_DIR, 'AGENTS.md'),
   'SOUL.md': path.join(CLAUDE_DIR, 'SOUL.md'),
 };
 
