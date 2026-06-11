@@ -22,11 +22,15 @@ Releases are **merge-driven** — there is no manual `git tag` step. You ship a
 release by bumping the version on `main`; the workflow does the rest.
 
 1. **Land the work.** Merge the feature/fix PRs going into the release.
-2. **Open a release PR** that does two things:
+2. **Open a release PR** that does three things:
    - **Changelog:** move entries from `## [Unreleased]` into a new
      `## [X.Y.Z] - YYYY-MM-DD` section, refresh the `compare` / release link
      references at the bottom, and leave an empty `[Unreleased]` on top.
    - **`package.json`:** bump `version` to `X.Y.Z`.
+   - **`skills/claude-tuneup/VERSION`:** set it to the same `X.Y.Z`. This is the
+     version that ships with the skill (`package.json` is not installed alongside it)
+     and drives the update nudge. `version-check.test.mjs` fails the build if it drifts
+     from `package.json`, so the two must move together.
 
    Commit it as `chore(release): X.Y.Z`.
 3. **Merge the release PR.** That's it.

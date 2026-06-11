@@ -11,6 +11,75 @@ fixes only.
 
 ## [Unreleased]
 
+### Added
+
+- **Update nudge** — a new `version-check.mjs` helper compares the shipped skill
+  version against the latest GitHub release and, only when behind, surfaces a single
+  line pointing at `npx skills add paulovitin/claude-tuneup`. The release lookup is
+  cached 24h under the state dir and fails silently when offline or rate-limited, so it
+  adds no model tokens on most runs and never blocks a tune-up. The skill version now
+  ships in a `skills/claude-tuneup/VERSION` file, kept in lockstep with `package.json`
+  by a release-guard test.
+
+## [0.3.0] - 2026-06-11
+
+### Fixed
+
+- **Plugin uninstall used the wrong CLI family** — the cleanup playbook now runs
+  `claude plugin uninstall <plugin>@<marketplace>` (with `--scope` / `--prune` notes)
+  instead of the nonexistent `claude mcp uninstall`.
+- **Hooks wired only in `settings.local.json` were flagged as orphans** — `scanHooks()`
+  now checks `settings.json` *and* `settings.local.json`, reports `referencedIn` per
+  hook, and carries a note that project-level settings can't be fully verified.
+- **`statsig` was misclassified as irreplaceable session history** — it's a
+  regenerable feature-flag cache and is now hinted as such instead of being protected
+  as conversation data.
+- **Age spans for `projects/` were computed from project-dir mtimes** — `ageSpan()`
+  now dates the session *files* below each project dir, so a project touched
+  yesterday can no longer mask year-old transcripts during age-scoped pruning.
+- **Hardcoded "cloud MCP" vendor list removed** — MCP servers are classified by
+  trait (`transport: remote` for `http`/`sse`/`url`, `local` otherwise); remote
+  servers are never touched as local files regardless of their name.
+- **`--dry-run` no longer creates a restore point** — a dry run changes nothing, so
+  it no longer litters `~/.claude-tuneup/backups/` with empty entries.
+
+### Changed
+
+- **`python3` is no longer required anywhere** — all inline `python3 -c` /
+  `python3 -m json.tool` usage replaced by Node: `scan.mjs --section usage` (usage
+  counters) and the new `validate-json.mjs` (config validation). The cross-OS,
+  zero-dependency promise now holds end to end.
+- **Progressive disclosure for the skill itself** — `SKILL.md` shrank from 403 to
+  ~160 lines (routing + UX contract + safety rules) and the per-group playbooks moved
+  to `references/{cleanup,claude-md,soul-md}.md`, loaded only when that group runs.
+  The frontmatter description was rewritten trigger-first and cut from ~690 to ~550
+  chars — it loads into every session, same token discipline the skill preaches.
+- **Skill consolidation to `~/.agents/skills/` is now opt-in** — the skill asks once
+  whether the dev actually uses other agents that share that dir; keeping skills in
+  `~/.claude/skills/` is treated as a valid setup.
+- `scan.mjs` accepts `--section <a,b>` so each step pulls only its own slice of the
+  install into context instead of re-scanning everything.
+
+### Added
+
+- **Mass-uninstall fuse** — `scanPlugins()` reports `listingReliable`; when
+  `installed_plugins.json` parses empty while plugin content exists on disk, the
+  skill refuses to treat unlisted plugins as uninstalled. Flat-map manifest formats
+  are tolerated.
+- **Selective restore** — `restore.mjs apply <RP> --configs-only | --items-only`,
+  surfaced in the `restore` flow as a scope question.
+- **`consolidate.mjs`** — deterministic move + link-back for skills, with a junction
+  fallback on Windows where plain symlinks need admin rights (`--undo` reverses it).
+- **`validate-json.mjs`** — cross-OS JSON sanity check used after every config edit.
+- **`insights.mjs --no-cache`** — force a fresh `/insights` run; empty section parses
+  are no longer cached and now point the agent at reading the report HTML directly.
+- **Secret hygiene** — restore points and pre-restore snapshots are chmod-restricted
+  (owner-only), and MCP credential detection reports env var *names* only, never values.
+- **End-to-end test suite** — backup→stash→restore roundtrips, collision handling,
+  selective restore, the plugins listing fuse, local-settings hook references,
+  `statsig`/span behavior, consolidate+undo, and JSON validation, all exercised as
+  child processes against a throwaway `$CLAUDE_TUNEUP_HOME`.
+
 ## [0.2.0] - 2026-06-05
 
 ### Changed
@@ -46,6 +115,7 @@ fixes only.
   undoable runs via restore points; session-history protection; `--dry-run`;
   EN + pt-BR READMEs.
 
-[Unreleased]: https://github.com/paulovitin/claude-tuneup/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/paulovitin/claude-tuneup/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/paulovitin/claude-tuneup/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/paulovitin/claude-tuneup/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/paulovitin/claude-tuneup/releases/tag/v0.1.0

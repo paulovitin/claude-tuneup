@@ -5,7 +5,7 @@
 //   node backup.mjs log <RP> <msg>    -> append a line to actions.log (e.g. a re-add command)
 import fs from 'node:fs';
 import path from 'node:path';
-import { CLAUDE_DIR, CLAUDE_JSON, backupsRoot, runId, exists, move } from './lib.mjs';
+import { CLAUDE_DIR, CLAUDE_JSON, backupsRoot, runId, exists, move, restrict } from './lib.mjs';
 
 // Restore points live outside the skill dir (see lib.backupsRoot) so a skill
 // reinstall/update/move can't take the undo history with it.
@@ -23,7 +23,15 @@ const CONFIGS = [
 function create() {
   const rp = path.join(BACKUPS, runId());
   fs.mkdirSync(path.join(rp, 'removed'), { recursive: true });
-  for (const f of CONFIGS) if (exists(f)) fs.copyFileSync(f, path.join(rp, path.basename(f)));
+  // Snapshots can carry secrets (.claude.json may hold tokens/keys) — keep the
+  // restore point owner-only. Best effort; no-op-ish on Windows.
+  restrict(rp, 0o700);
+  for (const f of CONFIGS) {
+    if (!exists(f)) continue;
+    const dest = path.join(rp, path.basename(f));
+    fs.copyFileSync(f, dest);
+    restrict(dest, 0o600);
+  }
   fs.writeFileSync(path.join(rp, 'removed.json'), '{}');
   fs.appendFileSync(path.join(rp, 'actions.log'), `# restore point ${new Date().toISOString()}\n`);
   process.stdout.write(rp + '\n');

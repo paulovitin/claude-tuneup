@@ -1,6 +1,12 @@
 #!/usr/bin/env node
 // Read-only discovery of a Claude Code install. Emits JSON for the agent to reason over.
 // Touches nothing. Runs on every OS (Node built-ins only).
+//
+//   node scan.mjs                      -> everything
+//   node scan.mjs --section hooks      -> one section
+//   node scan.mjs --section mcps,usage -> several sections (comma-separated)
+//
+// Sections: skills, plugins, hooks, mcps, projects, stateDirs, rootFiles, usage
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,21 +17,31 @@ const lstat = (p) => { try { return fs.lstatSync(p); } catch { return null; } };
 const OS_CRUFT = new Set(['.DS_Store', 'Thumbs.db']);
 // Irreplaceable conversation history / session state. Not covered by the restore
 // point (only configs are snapshotted), so deleting any of these is permanent.
-const SESSION_HISTORY = new Set(['projects', 'todos', 'shell-snapshots', 'file-history', 'sessions', 'statsig']);
+// NOTE: statsig is NOT here — it's a feature-flag/telemetry cache that regenerates.
+const SESSION_HISTORY = new Set(['projects', 'todos', 'shell-snapshots', 'file-history', 'sessions']);
+// Name-based *hint* only (the agent still inspects + asks): dirs that look like
+// regenerable caches. Deleting them reclaims little — they rebuild on next use.
+const REGENERABLE_HINT = /^(statsig|cache|caches|tmp|temp|logs?|downloads)$|[-._]cache$/i;
 
-function ageSpan(dir) {
-  // Oldest/newest child mtime + count — lets the agent prune by clear age, never in bulk.
-  const names = ls(dir);
-  let oldest = Infinity, newest = 0;
-  for (const n of names) {
-    const st = lstat(path.join(dir, n));
-    if (!st) continue;
-    const ms = st.mtimeMs;
-    if (ms < oldest) oldest = ms;
-    if (ms > newest) newest = ms;
-  }
+// File mtimes (not dir mtimes) up to `depth` levels down, so e.g. projects/<proj>/<session>.jsonl
+// dates the *sessions* — a project dir touched yesterday can still hold year-old transcripts.
+export function ageSpan(dir, depth = 2) {
+  let count = 0, oldest = Infinity, newest = 0;
+  const walk = (p, d) => {
+    for (const n of ls(p)) {
+      const fp = path.join(p, n);
+      const st = lstat(fp);
+      if (!st) continue;
+      if (st.isDirectory()) { if (d < depth) walk(fp, d + 1); continue; }
+      count++;
+      const ms = st.mtimeMs;
+      if (ms < oldest) oldest = ms;
+      if (ms > newest) newest = ms;
+    }
+  };
+  walk(dir, 0);
   const iso = (ms) => (ms && isFinite(ms)) ? new Date(ms).toISOString().slice(0, 10) : null;
-  return { count: names.length, oldest: iso(oldest), newest: iso(newest) };
+  return { count, oldest: iso(oldest), newest: iso(newest) };
 }
 
 function scanSkills() {
@@ -63,15 +79,34 @@ function scanSkills() {
 function scanPlugins() {
   const dir = path.join(CLAUDE_DIR, 'plugins');
   if (!exists(dir)) return null;
-  const installed = readJSON(path.join(dir, 'installed_plugins.json'))?.plugins || {};
+  // installed_plugins.json normally looks like { plugins: { "name@marketplace": ... } }.
+  // Tolerate a flat { "name@marketplace": ... } map too (format drift across versions).
+  const raw = readJSON(path.join(dir, 'installed_plugins.json'));
+  const installed =
+    (raw && typeof raw.plugins === 'object' && raw.plugins && !Array.isArray(raw.plugins)) ? raw.plugins
+    : (raw && typeof raw === 'object' && !Array.isArray(raw))
+      ? Object.fromEntries(Object.entries(raw).filter(([k]) => k.includes('@')))
+      : {};
+  const installedCount = Object.keys(installed).length;
   const usedMarkets = new Set(Object.keys(installed).map(k => k.split('@')[1]).filter(Boolean));
   const mDir = path.join(dir, 'marketplaces');
   const marketplaces = ls(mDir).map(name => ({
     name, size: human(dirSize(path.join(mDir, name))), used: usedMarkets.has(name),
   }));
+  // SAFETY: if the manifest parsed to *nothing* but plugin content exists on disk, the
+  // file format likely changed — "not in the listing" must NOT be read as "not installed",
+  // or a format drift would make the agent propose uninstalling everything.
+  const contentDirs = ls(dir).filter(n => {
+    const p = path.join(dir, n);
+    return lstat(p)?.isDirectory() && !isEmptyDir(p);
+  });
+  const listingReliable = installedCount > 0 || contentDirs.length === 0;
   return {
     totalSize: human(dirSize(dir)),
-    installedCount: Object.keys(installed).length,
+    installedCount,
+    installed: Object.keys(installed),
+    listingReliable,
+    ...(listingReliable ? {} : { warning: 'installed_plugins.json parsed empty but plugin content exists on disk — do NOT treat unlisted plugins as uninstalled.' }),
     marketplaces,
     unusedMarketplaces: marketplaces.filter(m => !m.used).map(m => `${m.name} (${m.size})`),
   };
@@ -88,13 +123,23 @@ export function hookReferenced(cmds, filename) {
 function scanHooks() {
   const dir = path.join(CLAUDE_DIR, 'hooks');
   const onDisk = ls(dir).filter(n => !OS_CRUFT.has(n));
-  const settings = readJSON(path.join(CLAUDE_DIR, 'settings.json')) || {};
-  const cmds = JSON.stringify(settings.hooks || {});
-  const referenced = onDisk.filter(f => hookReferenced(cmds, f));
+  // Hooks can be wired in settings.json OR settings.local.json — check both, or a hook
+  // referenced only in the local file gets falsely flagged as an orphan.
+  const sources = {};
+  for (const f of ['settings.json', 'settings.local.json']) {
+    const s = readJSON(path.join(CLAUDE_DIR, f));
+    if (s) sources[f] = JSON.stringify(s.hooks || {});
+  }
+  const refIn = (file) => Object.entries(sources)
+    .filter(([, blob]) => hookReferenced(blob, file))
+    .map(([src]) => src);
+  const entries = onDisk.map(name => ({ name, referencedIn: refIn(name) }));
   return {
-    onDisk,
-    referencedBySettings: referenced,
-    onDiskNotReferenced: onDisk.filter(f => !referenced.includes(f)),
+    settingsChecked: Object.keys(sources),
+    onDisk: entries,
+    referencedBySettings: entries.filter(e => e.referencedIn.length).map(e => e.name),
+    onDiskNotReferenced: entries.filter(e => !e.referencedIn.length).map(e => e.name),
+    note: 'Only user-level settings were checked; a file may still be referenced by a project-level .claude/settings.json. Confirm with the dev before treating it as an orphan.',
   };
 }
 
@@ -108,13 +153,27 @@ export function checkCmdPath(spec) {
   return { missing };
 }
 
+// Trait-based MCP classification — no hardcoded vendor names. Remote servers
+// (type http/sse, or a url field) are managed elsewhere (claude.ai connectors /
+// `claude mcp`) and must not be touched as local files. secretHints lists env var
+// NAMES that look like inline credentials — never the values.
+export function classifyMcp(spec) {
+  const remote = spec?.type === 'http' || spec?.type === 'sse' || typeof spec?.url === 'string';
+  const secretHints = Object.entries(spec?.env || {})
+    .filter(([k, v]) => /key|token|secret|passw|credential/i.test(k) && typeof v === 'string' && v.trim().length >= 8)
+    .map(([k]) => k);
+  return remote
+    ? { transport: 'remote', url: spec?.url, secretHints }
+    : { transport: 'local', secretHints, missingPaths: checkCmdPath(spec).missing };
+}
+
 function scanMCPs() {
-  const global = readJSON(CLAUDE_JSON)?.mcpServers || {};
-  const proj = readJSON(path.join(CLAUDE_DIR, 'settings.json'))?.mcpServers || {};
-  const map = (obj) => Object.entries(obj).map(([name, spec]) => ({
-    name, missingPaths: checkCmdPath(spec).missing,
-  }));
-  return { global: map(global), settings: map(proj) };
+  const fromFile = (obj) => Object.entries(obj || {}).map(([name, spec]) => ({ name, ...classifyMcp(spec) }));
+  return {
+    global: fromFile(readJSON(CLAUDE_JSON)?.mcpServers),
+    settings: fromFile(readJSON(path.join(CLAUDE_DIR, 'settings.json'))?.mcpServers),
+    settingsLocal: fromFile(readJSON(path.join(CLAUDE_DIR, 'settings.local.json'))?.mcpServers),
+  };
 }
 
 function scanProjects() {
@@ -132,10 +191,12 @@ function scanStateDirs(handled) {
     const p = path.join(CLAUDE_DIR, name);
     const bytes = dirSize(p);
     const sensitive = SESSION_HISTORY.has(name);
+    const regen = !sensitive && REGENERABLE_HINT.test(name);
     return {
       name, size: human(bytes), empty: isEmptyDir(p), big: bytes >= 50 * MB,
       sessionHistory: sensitive,
       ...(sensitive ? { span: ageSpan(p) } : {}),
+      ...(regen ? { hint: 'regenerable' } : {}),
     };
   }).sort((a, b) => (b.empty === a.empty ? 0 : a.empty ? 1 : -1));
 }
@@ -155,18 +216,43 @@ function scanRootFiles() {
   });
 }
 
+// Top usage counters straight from ~/.claude.json — the cross-OS replacement for the
+// old inline python3 fallback in the CLAUDE.md step.
+function scanUsage() {
+  const d = readJSON(CLAUDE_JSON) || {};
+  const iso = (ts) => ts ? new Date(ts).toISOString().slice(0, 10) : null;
+  const top = (x = {}, n = 12) => Object.entries(x)
+    .map(([name, v]) => ({ name, count: v?.usageCount || 0, lastUsed: iso(v?.lastUsedAt) }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, n);
+  return { skills: top(d.skillUsage), tools: top(d.toolUsage) };
+}
+
 function main() {
   const handled = new Set(['skills', 'plugins', 'hooks', '.backups']);
-  out({
-    home: HOME,
-    skills: scanSkills(),
-    plugins: scanPlugins(),
-    hooks: scanHooks(),
-    mcps: scanMCPs(),
-    projects: scanProjects(),
-    stateDirs: scanStateDirs(handled),
-    rootFiles: scanRootFiles(),
-  });
+  const SECTIONS = {
+    skills: scanSkills,
+    plugins: scanPlugins,
+    hooks: scanHooks,
+    mcps: scanMCPs,
+    projects: scanProjects,
+    stateDirs: () => scanStateDirs(handled),
+    rootFiles: scanRootFiles,
+    usage: scanUsage,
+  };
+  const argv = process.argv.slice(2);
+  const i = argv.indexOf('--section');
+  const wanted = i >= 0 && argv[i + 1]
+    ? argv[i + 1].split(',').map(s => s.trim()).filter(Boolean)
+    : Object.keys(SECTIONS);
+  const unknown = wanted.filter(k => !SECTIONS[k]);
+  if (unknown.length) {
+    console.error(`unknown section(s): ${unknown.join(', ')} — valid: ${Object.keys(SECTIONS).join(', ')}`);
+    process.exit(1);
+  }
+  const res = { home: HOME };
+  for (const k of wanted) res[k] = SECTIONS[k]();
+  out(res);
 }
 
 // Run the scan only when invoked directly; stay importable (and side-effect-free) for tests.
