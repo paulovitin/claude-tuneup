@@ -13,6 +13,20 @@ fixes only.
 
 ### Added
 
+- **AGENTS.md bridge** — `scan.mjs --section memory` analyzes the user-level memory
+  files (`CLAUDE.md`, `AGENTS.md`, `SOUL.md`): per-file size/tokens, the `@imports`
+  found in `CLAUDE.md`, `linkStyle` (`import`/`symlink`/`none`), a **`drift`** flag
+  when both files carry real content with nothing linking them, and
+  `combinedApproxTokens` (what actually loads each session, since imports load at
+  launch). Claude Code does not auto-load `AGENTS.md`, so the bridge is the import
+  mechanism it *does* have.
+- **Step 9.0 in the claude-md playbook** — opt-in sub-flow for multi-agent setups:
+  one question ("do other agents read AGENTS.md?"), then the **shim pattern**
+  (`CLAUDE.md` = `@AGENTS.md` + `@SOUL.md` + Claude-only deltas), drift
+  consolidation with a chosen source of truth, and symlink→shim conversion.
+  Claude-only users never see any of it; no `AGENTS.md` is ever created for them.
+- `AGENTS.md` is now part of the restore-point snapshot (`backup.mjs`/`restore.mjs`)
+  and classified `config-keep` by the root-files scan.
 - **Update nudge** — a new `version-check.mjs` helper compares the shipped skill
   version against the latest GitHub release and, only when behind, surfaces a single
   line pointing at `npx skills add paulovitin/claude-tuneup`. The release lookup is
@@ -20,6 +34,16 @@ fixes only.
   adds no model tokens on most runs and never blocks a tune-up. The skill version now
   ships in a `skills/claude-tuneup/VERSION` file, kept in lockstep with `package.json`
   by a release-guard test.
+
+### Changed
+
+- **SOUL wiring rule hardened** — `@SOUL.md` lives only in `CLAUDE.md`, never in
+  `AGENTS.md`: the soul is Claude-specific by design and `@` syntax is noise to
+  every other tool. Symlinked setups are converted to the shim first.
+- Rule 9 (token budget) now covers the **combined** total in shim setups: shim +
+  `AGENTS.md` + `SOUL.md` together stay within ~1500 tokens.
+- Frontmatter description gains the `AGENTS.md` trigger ("wire or de-duplicate
+  AGENTS.md with CLAUDE.md").
 
 ## [0.3.0] - 2026-06-11
 

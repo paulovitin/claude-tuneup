@@ -1,6 +1,6 @@
 ---
 name: claude-tuneup
-description: Clean, optimize and personalize a Claude Code installation — guided, step-by-step, fully undoable. Use whenever the user mentions claude-tuneup, or wants to clean/declutter/slim down their Claude Code install or ~/.claude, free disk space, remove unused skills/plugins/hooks/MCP servers, fix config integrity, improve or trim CLAUDE.md based on real usage, build a SOUL.md profile, or undo a previous tune-up ("claude-tuneup restore"). Also triggers on "my Claude Code is bloated/slow/messy" and pt-BR phrasings like "limpar/otimizar o Claude Code".
+description: Clean, optimize and personalize a Claude Code installation — guided, step-by-step, fully undoable. Use whenever the user mentions claude-tuneup, or wants to clean/declutter/slim down their Claude Code install or ~/.claude, free disk space, remove unused skills/plugins/hooks/MCP servers, fix config integrity, improve or trim CLAUDE.md based on real usage, wire or de-duplicate AGENTS.md with CLAUDE.md, build a SOUL.md profile, or undo a previous tune-up ("claude-tuneup restore"). Also triggers on "my Claude Code is bloated/slow/messy" and pt-BR phrasings like "limpar/otimizar o Claude Code".
 ---
 
 # Claude Tuneup Skill
@@ -44,7 +44,7 @@ Never make the dev decide on something they can't identify.
 
 The mechanical, repeatable work lives in `"$SKILL_DIR"/scripts/*.mjs` — plain Node (no deps), so it runs the same on macOS, Windows and Linux via the `node` that Claude Code already bundles. **Prefer these over ad-hoc inline shell** — never reach for `python3`, which is not guaranteed to exist; the agent's job is judgment (classify, ask, decide), the scripts' job is gather/apply.
 
-- `node scripts/scan.mjs [--section a,b]` → read-only discovery of the install as JSON. Sections: `skills`, `plugins`, `hooks`, `mcps`, `projects`, `stateDirs`, `rootFiles`, `usage`. Run it **once per step with just that step's section** instead of re-scanning everything. Touches nothing.
+- `node scripts/scan.mjs [--section a,b]` → read-only discovery of the install as JSON. Sections: `skills`, `plugins`, `hooks`, `mcps`, `projects`, `stateDirs`, `rootFiles`, `usage`, `memory`. Run it **once per step with just that step's section** instead of re-scanning everything. Touches nothing.
 - `node scripts/backup.mjs create` → make a restore point, print its path (`$RP`). Also `backup.mjs stash <RP> <path>` (move an item into the restore point, logged) and `backup.mjs log <RP> <msg>`.
 - `node scripts/restore.mjs list` / `restore.mjs apply <RP> [--configs-only|--items-only]` → list restore points, or apply one (fully, or just configs / just removed items).
 - `node scripts/insights.mjs [--no-cache]` → run `/insights` headless and return the useful report sections as JSON (cached 1h).
@@ -160,5 +160,5 @@ Then, via AskUserQuestion, ask if the result looks good:
 6. **All decisions via AskUserQuestion buttons** — never free-text y/n. **EVERY question must include a "What does this do?" button** (no exceptions, even an obvious-looking delete); picking it inspects + explains that item, then re-asks. See "How to ask the dev".
 7. **Size beats labels** — measure everything, drill into any dir ≥ 50M even if marked "internal/keep"
 8. **Verify deletes stuck** — re-measure after deleting big artifacts; if it regenerated, the real fix is disabling the owning plugin
-9. **`CLAUDE.md` + `SOUL.md` stay lean** — each ≤ 200 lines / ~1500 tokens; every line must change behavior. They load into every session, so bloat is a permanent token tax. Trim before adding.
+9. **`CLAUDE.md` + `SOUL.md` stay lean** — each ≤ 200 lines / ~1500 tokens; every line must change behavior. They load into every session, so bloat is a permanent token tax — and **imports load at launch too**, so in an AGENTS.md shim setup the budget covers the *combined* total (`memory` scan's `combinedApproxTokens`). Trim before adding.
 10. **Trust scan flags over assumptions** — if `plugins.listingReliable` is `false`, never propose uninstalls based on the listing; if an MCP's `transport` is `remote`, never touch it as a local file.

@@ -91,6 +91,22 @@ It loads every session via `@SOUL.md`, so every answer fits **you** instead of a
 
 ---
 
+## 🤝 Plays nice with `AGENTS.md` — without losing the soul
+
+Claude Code doesn't auto-load `AGENTS.md`, so repos that standardize on the cross-tool convention (Codex, Cursor, Gemini CLI…) usually end up with a `CLAUDE.md` copy that **drifts in silence**. The tune-up detects that drift and offers the clean bridge: shared truth lives once in `AGENTS.md`, and `CLAUDE.md` becomes a three-line shim —
+
+```markdown
+@AGENTS.md
+@SOUL.md
+
+# Claude-specific
+- (deltas only Claude Code should see)
+```
+
+One opt-in question; Claude-only users never see it. And `@SOUL.md` stays in `CLAUDE.md` by rule — your soul never leaks into the cross-tool file.
+
+---
+
 ## 🛟 Safety & undo (built for the cautious — affectionately)
 
 This skill's job is deleting things, so it's paranoid by design:
@@ -150,6 +166,9 @@ Not unless you explicitly ask for it, confirm it per folder, and acknowledge the
 
 **Does it work on Windows?**
 Yes — the helpers are pure Node, JSON validation doesn't shell out to `python3`, and consolidation uses junctions where symlinks would need admin rights.
+
+**I use Codex/Cursor with `AGENTS.md` — will this fight my setup?**
+The opposite: it detects CLAUDE.md↔AGENTS.md drift, consolidates with your confirmation, and wires `CLAUDE.md` as an import shim so every tool reads one source of truth. The token budget is enforced on the *combined* total, since imports load at launch too.
 
 **What does a dry run cost?**
 Nothing. It reads, reports sizes and candidates, and creates no backup, no changes, no model calls (the `/insights` call only happens in step 9 and is cached for an hour).

@@ -28,6 +28,7 @@ If the dev says yes, **interview them with AskUserQuestion buttons** (their pref
 Then:
 - Write `~/.claude/SOUL.md` from the answers — tight, only facts that change how the agent acts.
 - Wire it: add `@SOUL.md` to the top of `~/.claude/CLAUDE.md` so it loads each session (it is NOT auto-loaded otherwise).
+- **AGENTS.md rule:** `@SOUL.md` lives ONLY in `CLAUDE.md` — never in `AGENTS.md`. The soul is Claude-specific by design; `@` import syntax in a tool-agnostic file is noise to every other agent. If `CLAUDE.md` is currently a symlink to `AGENTS.md`, convert it to the import shim first (see the claude-md playbook, sub-step 9.0) so the soul has a home that doesn't leak cross-tool.
 - Read it back and offer to adjust. Stop when more questions would only add bloat — say so honestly.
 
 **Keep it lean (hard budget).** `SOUL.md` rides into every session via `@SOUL.md` (on top of `CLAUDE.md`) — the two share one context budget, so the same discipline applies:

@@ -91,6 +91,22 @@ Ele carrega em toda sessão via `@SOUL.md`, então cada resposta serve a **você
 
 ---
 
+## 🤝 Convive bem com o `AGENTS.md` — sem perder a alma
+
+O Claude Code não carrega `AGENTS.md` automaticamente, então repos que padronizam na convenção cross-tool (Codex, Cursor, Gemini CLI…) acabam com uma cópia em `CLAUDE.md` que **diverge em silêncio**. O tune-up detecta esse drift e oferece a ponte limpa: a verdade compartilhada vive uma vez só no `AGENTS.md`, e o `CLAUDE.md` vira um shim de três linhas —
+
+```markdown
+@AGENTS.md
+@SOUL.md
+
+# Específico do Claude
+- (deltas que só o Claude Code deve ver)
+```
+
+Uma pergunta opt-in; quem usa só Claude Code nunca vê isso. E o `@SOUL.md` fica no `CLAUDE.md` por regra — sua alma nunca vaza para o arquivo cross-tool.
+
+---
+
 ## 🛟 Segurança & undo (feito para os cautelosos — com carinho)
 
 O trabalho desta skill é apagar coisas, então ela é paranoica por design:
@@ -150,6 +166,9 @@ Só se você pedir explicitamente, confirmar pasta por pasta e aceitar o aviso �
 
 **Funciona no Windows?**
 Sim — os helpers são Node puro, a validação de JSON não depende de `python3`, e a consolidação usa junctions onde symlinks pediriam admin.
+
+**Uso Codex/Cursor com `AGENTS.md` — isso vai brigar com meu setup?**
+O contrário: ele detecta drift entre CLAUDE.md↔AGENTS.md, consolida com a sua confirmação e transforma o `CLAUDE.md` num shim de import para toda ferramenta ler uma fonte de verdade só. O budget de tokens passa a valer no total *combinado*, já que imports também carregam no launch.
 
 **Quanto custa um dry run?**
 Nada. Ele lê, reporta tamanhos e candidatos, e não cria backup, não muda nada, não faz chamada de modelo (a chamada do `/insights` só acontece no passo 9 e fica em cache por uma hora).
