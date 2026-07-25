@@ -357,6 +357,13 @@ function main() {
     memory: scanMemory,
   };
   const argv = process.argv.slice(2);
+  if (argv.includes('--help')) {
+    process.stdout.write(`Usage: node scan.mjs [--section a,b] [--sections] [--help]
+Sections: ${Object.keys(SECTIONS).join(', ')}
+`);
+    return;
+  }
+  if (argv.includes('--sections')) { out({ sections: Object.keys(SECTIONS) }); return; }
   const i = argv.indexOf('--section');
   const wanted = i >= 0 && argv[i + 1]
     ? argv[i + 1].split(',').map(s => s.trim()).filter(Boolean)

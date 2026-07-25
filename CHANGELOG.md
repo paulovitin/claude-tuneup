@@ -42,7 +42,8 @@ Almost nothing about a run behaves the way 0.4.x behaved.
   stated plainly, and builds the summary from the difference between the two reports. Skipped
   silently when the run changed nothing. A hard filter prevents it from proposing removal of skills
   this run just created (they have zero usage by definition).
-- `--help` on every script.
+- `--help` on every script, and `scan.mjs --sections` to list valid section names. Previously
+  `insights.mjs --help` spent a real model call before printing anything.
 
 ### Changed
 

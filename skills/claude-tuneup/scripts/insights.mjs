@@ -17,6 +17,11 @@ const CACHE_FILE = path.join(CLAUDE_DIR, '.claude-tuneup-insights-cache.json');
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 const NO_CACHE = process.argv.includes('--no-cache');
 
+if (process.argv.includes('--help')) {
+  process.stdout.write('Usage: node insights.mjs [--no-cache] [--help]\n');
+  process.exit(0);
+}
+
 function loadCache() {
   try {
     const raw = fs.readFileSync(CACHE_FILE, 'utf8');

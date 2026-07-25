@@ -96,6 +96,10 @@ async function fetchLatest(timeoutMs = 4000) {
 }
 
 async function main() {
+  if (process.argv.includes('--help')) {
+    process.stdout.write('Usage: node version-check.mjs [--no-cache] [--help]\n');
+    return;
+  }
   const noCache = process.argv.includes('--no-cache');
   const current = readLocalVersion();
   let latest = noCache ? null : loadCache();

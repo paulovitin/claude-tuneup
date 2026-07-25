@@ -57,4 +57,4 @@ const [cmd, ...rest] = process.argv.slice(2);
 if (cmd === 'create') create();
 else if (cmd === 'stash') stash(rest[0], rest[1]);
 else if (cmd === 'log') log(rest[0], rest.slice(1).join(' '));
-else { console.error('usage: backup.mjs create | stash <RP> <path> | log <RP> <msg>'); process.exit(1); }
+else { console.error('Usage: node backup.mjs create | stash <RP> <path> | log <RP> <msg>'); process.exit(1); }
