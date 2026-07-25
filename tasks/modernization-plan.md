@@ -1,3 +1,10 @@
+> **Status: implemented** (branch `feat/v5-instruction-auditor`, 2026-07-25). This document is the
+> design record, not a to-do list. Shipped: `doctor.mjs`, `audit-instructions.mjs`, the auto-memory
+> fields in `scan.mjs`, the `instructions` group (steps 12–17), the SOUL.md retirement, STEP 0.6, the
+> optional closing pass, no-arg-runs-everything, and the positioning rewrite across both READMEs.
+> **Not done, deliberately:** the version bump to 5.0.0 (releases are merge-driven — the release PR
+> does it), and the skill-creator A/B validation of step 12's premise, which is still only a method.
+
 # claude-tuneup modernization plan — instruction auditor
 
 Status: **plan only, no code changes.** Target: **5.0.0**.
