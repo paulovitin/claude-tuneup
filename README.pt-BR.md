@@ -4,9 +4,9 @@
 
 # claude-tuneup
 
-### Seu `~/.claude` é uma gaveta de bagunça. Isto limpa ela — e dá uma alma à sua instalação.
+### As regras que você escreveu para o Claude custam mais que a sua gaveta de bagunça.
 
-Um tune-up guiado e **totalmente reversível** que um agente de IA executa *com* você.<br/>
+Um agente de IA audita as instruções que carregam em **toda sessão** — e limpa o disco também.<br/>
 Cada mudança é um botão. Cada botão tem um *"O que isso faz?"*. Cada execução pode ser desfeita.
 
 <br/>
@@ -31,7 +31,8 @@ descrições de skill que roteiam mal, um `SOUL.md` que você paga em toda sess�
 não. Tudo isso carrega antes de você digitar uma palavra.
 
 Então a ferramenta faz outra pergunta, no lugar de "o que dá pra apagar?" — ela pergunta **"isso
-ainda ajuda?"**:
+ainda ajuda?"**. Cada verificação do grupo `instructions` vem de uma fonte só: o artigo da Anthropic
+[**The new rules of context engineering for Claude 5 generation models**](https://claude.com/blog/the-new-rules-of-context-engineering-for-claude-5-generation-models).
 
 ```text
 > claude-tuneup
@@ -145,6 +146,25 @@ O trabalho desta skill é apagar coisas, então ela é paranoica por design:
 - **🧯 Fusível contra mudança de formato.** Se o `installed_plugins.json` algum dia parsear vazio enquanto há conteúdo de plugin no disco, a skill se recusa a tratar "fora da lista" como "desinstalado" — uma mudança de formato de arquivo não consegue induzi-la a propor uma desinstalação em massa.
 - **♻️ Sem reclaims inúteis.** Artefatos que se regeneram (venvs, caches, runtimes, `statsig`) são detectados — a skill aponta a correção de verdade (desabilitar o plugin dono) em vez de apagar algo que só vai se reconstruir.
 - **🔒 Privacidade.** O relatório do `/insights` é dado *seu* e local — lido ao vivo para guiar sugestões, nunca copiado para a skill ou para qualquer lugar compartilhado. Credenciais inline em configs de MCP são sinalizadas só pelo **nome** da variável de ambiente; valores nunca são impressos.
+
+---
+
+## 📐 De onde vêm as regras
+
+O grupo `instructions` não é um conjunto de opiniões. Cada verificação implementa uma regra do artigo
+[**The new rules of context engineering for Claude 5 generation models**](https://claude.com/blog/the-new-rules-of-context-engineering-for-claude-5-generation-models):
+
+| A regra | A verificação |
+| --- | --- |
+| Prefira julgamento a regras rígidas | **passo 12** — reescreve regras feitas para modelos antigos, mantendo os absolutos de segurança intactos |
+| Não brigue com o próprio agente | **passo 13** — sinaliza instruções que contradizem o que o Claude Code já faz |
+| Diga uma vez só | **passo 14** — a mesma instrução no `CLAUDE.md`, no corpo dos agentes, e nas descrições de agentes e skills |
+| Interface em vez de exemplos | **passo 15** — descrições que roteiam por capacidade, não por frases de exemplo |
+| Revelação progressiva | **passo 16** — o que fica sempre carregado e o que vira skill carregada sob demanda |
+| Deixe a memória automática ser a memória | **passo 10** — o `SOUL.md` se aposenta na memória do próprio Claude Code |
+
+A skill se cobra as mesmas regras: a divisão abaixo é revelação progressiva, e só o playbook do grupo
+que você está rodando entra no contexto.
 
 ---
 

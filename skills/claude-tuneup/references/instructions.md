@@ -2,6 +2,10 @@
 
 > Loaded on demand by `SKILL.md`. The UX contract and Rules in `SKILL.md` apply here.
 
+Every check here implements one rule from Anthropic's [**The new rules of context engineering for
+Claude 5 generation models**](https://claude.com/blog/the-new-rules-of-context-engineering-for-claude-5-generation-models) — step 12 is judgment over rigid rules, 13 is not fighting the
+harness, 14 is saying it once, 15 is interfaces over examples, 16 is progressive disclosure.
+
 Cleanup takes junk off the disk. This group takes junk out of the **instructions** — the files that
 load into every session and shape how Claude behaves. Nothing here is about space; everything here
 is about whether what the dev wrote still helps.

@@ -29,7 +29,9 @@ rules written to compensate for older models, the same guidance copied into four
 descriptions that route badly, a `SOUL.md` you pay for on every session whether it's relevant or not.
 All of it loads before you type a word.
 
-So the tool asks a different question than "what can I delete?" — it asks **"does this still help?"**:
+So the tool asks a different question than "what can I delete?" — it asks **"does this still help?"**.
+Every check in the `instructions` group comes from one source: Anthropic's
+[**The new rules of context engineering for Claude 5 generation models**](https://claude.com/blog/the-new-rules-of-context-engineering-for-claude-5-generation-models).
 
 ```text
 > claude-tuneup
@@ -141,6 +143,25 @@ This skill's job is deleting things, so it's paranoid by design:
 - **🧯 Format-drift fuse.** If `installed_plugins.json` ever parses empty while plugin content exists on disk, the skill refuses to treat "unlisted" as "uninstalled" — a file-format change can't trick it into proposing a mass uninstall.
 - **♻️ No pointless reclaims.** Self-regenerating artifacts (venvs, caches, runtimes, `statsig`) are detected — the skill points you at the real fix (disable the owning plugin) instead of deleting something that just rebuilds.
 - **🔒 Privacy.** The `/insights` report is *your* local data — read live to drive suggestions, never copied into the skill or anywhere shared. Inline credentials in MCP configs are flagged by env-var **name** only; values are never printed.
+
+---
+
+## 📐 Where the rules come from
+
+The `instructions` group isn't a set of opinions. Each check implements one rule from
+[**The new rules of context engineering for Claude 5 generation models**](https://claude.com/blog/the-new-rules-of-context-engineering-for-claude-5-generation-models):
+
+| The rule | The check |
+| --- | --- |
+| Prefer judgment over rigid rules | **step 12** — rewrite rules written to compensate for older models, keeping safety absolutes verbatim |
+| Don't fight the harness | **step 13** — flag instructions that contradict what the runtime already does |
+| Say it once | **step 14** — the same instruction across `CLAUDE.md`, agent bodies, agent and skill descriptions |
+| Interfaces over examples | **step 15** — `description` fields that route on capability, not on example phrasings |
+| Progressive disclosure | **step 16** — what stays always-loaded vs. what becomes a lazily-loaded skill |
+| Let auto-memory do memory | **step 10** — `SOUL.md` retires into Claude Code's own memory |
+
+The skill holds itself to the same rules: the split below is progressive disclosure, and only the
+playbook for the group you're running enters the context.
 
 ---
 

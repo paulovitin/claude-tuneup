@@ -12,7 +12,8 @@ fixes only.
 ## [Unreleased]
 
 The version this becomes is **5.0.0** — a deliberate jump. claude-tuneup stops being an install
-cleaner and becomes an **instruction auditor**, aligned with how current Claude models use context.
+cleaner and becomes an **instruction auditor**, following Anthropic's
+[The new rules of context engineering for Claude 5 generation models](https://claude.com/blog/the-new-rules-of-context-engineering-for-claude-5-generation-models).
 Almost nothing about a run behaves the way 0.4.x behaved.
 
 ### Added
