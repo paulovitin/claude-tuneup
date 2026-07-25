@@ -237,7 +237,7 @@ export function parseImports(text) {
 //   linkStyle  — how CLAUDE.md reaches AGENTS.md: 'import' | 'symlink' | 'none'
 //   drift      — both files carry real content and NOTHING links them (silent duplication)
 //   combinedApproxTokens — what actually loads each session (imports load at launch too)
-export function analyzeMemory(files) {
+export function analyzeMemory(files, autoMemory = {}) {
   const info = (f) => {
     if (!f?.exists) return { exists: false };
     const text = f.text || '';
@@ -266,7 +266,32 @@ export function analyzeMemory(files) {
   return {
     files: { 'CLAUDE.md': claude, 'AGENTS.md': agents, 'SOUL.md': soul },
     imports, importsAgents, importsSoul, linkStyle, drift, combinedApproxTokens,
+    autoMemoryEnabled: !(autoMemory.disabledByEnvironment || autoMemory.disabledBySettings),
+    autoMemoryDirectory: autoMemory.directory || null,
+    memoryScope: autoMemory.directory ? 'global' : 'per-project',
+    memoryDir: autoMemory.memoryDir || null,
+    teamMounts: !!autoMemory.teamMounts,
+    soulStatus: !soul.exists ? 'absent' : importsSoul ? 'present-wired' : 'present-unwired',
   };
+}
+
+function countMemoryFiles(dir) {
+  return ls(dir).filter((name) => lstat(path.join(dir, name))?.isFile()).length;
+}
+
+// Project directory names are an undocumented Claude Code implementation detail
+// (a cwd with its separators and other non-word characters folded to '-'). We do
+// NOT trust a name we derived: we derive a candidate and then require that exact
+// entry to already exist in the listing. No match — or an ambiguous one — yields
+// null, and callers must never write to a guessed memory path. Never read inside
+// a project entry to identify it: those are the user's session transcripts.
+function locateProjectMemoryDir(cwd) {
+  const projectsDir = path.join(CLAUDE_DIR, 'projects');
+  const entries = ls(projectsDir).filter((name) => lstat(path.join(projectsDir, name))?.isDirectory());
+  const fold = (s) => s.replace(/[^A-Za-z0-9]+/g, '-');
+  const candidate = fold(cwd);
+  const matches = entries.filter((name) => fold(name) === candidate);
+  return matches.length === 1 ? path.join(projectsDir, matches[0], 'memory') : null;
 }
 
 // User-level memory files (~/.claude). Project-level AGENTS.md follows the same
@@ -282,10 +307,27 @@ function scanMemory() {
   }
   const read = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return ''; } };
   const f = (p, extra = {}) => exists(p) ? { exists: true, text: read(p), ...extra } : { exists: false };
+  const settings = readJSON(path.join(CLAUDE_DIR, 'settings.json')) || {};
+  const configured = typeof settings.autoMemoryDirectory === 'string' && settings.autoMemoryDirectory.trim()
+    ? settings.autoMemoryDirectory.trim()
+    : null;
+  const directory = configured
+    ? path.resolve(/^~[\\/]/.test(configured) ? path.join(HOME, configured.slice(2)) : configured)
+    : null;
+  const memoryPath = directory || locateProjectMemoryDir(process.cwd());
+  const memoryDir = memoryPath
+    ? { path: memoryPath, exists: exists(memoryPath), fileCount: countMemoryFiles(memoryPath) }
+    : null;
   return analyzeMemory({
     claude: f(claudePath, { symlinkToAgents }),
     agents: f(agentsPath),
     soul: f(soulPath),
+  }, {
+    disabledByEnvironment: Object.prototype.hasOwnProperty.call(process.env, 'CLAUDE_CODE_DISABLE_AUTO_MEMORY'),
+    disabledBySettings: settings.autoMemoryEnabled === false,
+    directory,
+    memoryDir,
+    teamMounts: !!memoryDir && lstat(path.join(memoryPath, 'team'))?.isDirectory(),
   });
 }
 
