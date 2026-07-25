@@ -10,11 +10,11 @@ This repo ships as a Claude Code skill and is versioned with
 
 - **MAJOR** — incompatible change to how the skill is invoked or to the helper
   script contracts.
-- **MINOR** — new capability, or (while on `0.x`) a behavior change such as the
-  backup location.
+- **MINOR** — new capability, backward-compatible.
 - **PATCH** — backward-compatible bug fix.
 
-While on `0.x` the API is not frozen: a minor bump may include behavior changes.
+Releases up to `0.4.1` were pre-1.0, where a minor bump could carry behavior
+changes. From `5.0.0` on, plain SemVer applies.
 
 ## How to cut a release
 

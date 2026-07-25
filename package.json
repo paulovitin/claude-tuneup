@@ -1,6 +1,6 @@
 {
   "name": "claude-tuneup",
-  "version": "0.4.1",
+  "version": "5.0.0",
   "private": true,
   "type": "module",
   "description": "Audit the instructions your Claude Code install loads every session — and reclaim its disk. Complements the built-in /doctor.",
