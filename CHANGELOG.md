@@ -5,13 +5,15 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Pre-1.0 note: while on `0.x`, a **minor** bump (`0.MINOR.x`) may carry behavior
-changes, and a **patch** bump (`0.x.PATCH`) is reserved for backward-compatible
-fixes only.
+Version note: releases up to `0.4.1` were pre-1.0, where a **minor** bump could
+carry behavior changes. From `5.0.0` on, plain SemVer applies — breaking changes
+take a **major** bump.
 
 ## [Unreleased]
 
-The version this becomes is **5.0.0** — a deliberate jump. claude-tuneup stops being an install
+## [5.0.0] - 2026-07-25
+
+A deliberate version jump. claude-tuneup stops being an install
 cleaner and becomes an **instruction auditor**, following Anthropic's
 [The new rules of context engineering for Claude 5 generation models](https://claude.com/blog/the-new-rules-of-context-engineering-for-claude-5-generation-models).
 Almost nothing about a run behaves the way 0.4.x behaved.
@@ -201,7 +203,8 @@ Almost nothing about a run behaves the way 0.4.x behaved.
   undoable runs via restore points; session-history protection; `--dry-run`;
   EN + pt-BR READMEs.
 
-[Unreleased]: https://github.com/paulovitin/claude-tuneup/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/paulovitin/claude-tuneup/compare/v5.0.0...HEAD
+[5.0.0]: https://github.com/paulovitin/claude-tuneup/compare/v0.4.1...v5.0.0
 [0.4.1]: https://github.com/paulovitin/claude-tuneup/compare/v0.3.0...v0.4.1
 [0.3.0]: https://github.com/paulovitin/claude-tuneup/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/paulovitin/claude-tuneup/compare/v0.1.0...v0.2.0
