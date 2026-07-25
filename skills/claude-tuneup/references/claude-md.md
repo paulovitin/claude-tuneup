@@ -2,7 +2,14 @@
 
 > Loaded on demand by SKILL.md. The UX contract and Rules in SKILL.md apply here.
 
-## STEP 9: Improve `CLAUDE.md` (grounded in real usage via `/insights`)
+## STEP 9: The global `CLAUDE.md` and its AGENTS.md bridge
+
+**Scope: `~/.claude/CLAUDE.md` only** — the user-level file, plus whatever it imports. For a
+project's checked-in `CLAUDE.md`, say so by name: **run `/doctor` there. Its checks 3 and 4 do that
+job better**, with the repo in front of them. This step deliberately does not compete.
+
+Restructuring the global file — deciding what stays, what becomes a skill, what becomes a memory —
+is **step 16**, in the `instructions` group. This step handles the bridge and the budget.
 
 ### 9.0 — AGENTS.md bridge (multi-agent setups only)
 
@@ -40,45 +47,23 @@ Routing by scan result (every edit goes through AskUserQuestion; configs are alr
 
 Two hard rules: **never put `@` imports inside `AGENTS.md`** (it's tool-agnostic — Claude syntax doesn't belong there), and **`@SOUL.md` lives only in `CLAUDE.md`** (see the soul-md playbook).
 
-**Budget with imports:** imported files still load at launch, so the ≤ ~1500-token budget applies to `combinedApproxTokens` — shim + `AGENTS.md` + `SOUL.md` together. Show the combined number to the dev whenever this sub-step changes anything.
+**Budget with imports:** imported files still load at launch, so the memory-file budget in SKILL.md Rule 9 applies to `combinedApproxTokens` — shim + `AGENTS.md` + `SOUL.md` together, not per file. Show the combined number to the dev whenever this sub-step changes anything.
 
-### 9.1 — Ground it in real usage
+### 9.1 — Report what actually loads
 
-Offer to the dev: "Want me to review and improve CLAUDE.md?" (In a shim setup, "CLAUDE.md content" means the file the shim imports — improvements land in `AGENTS.md` if they're tool-agnostic, in the shim's Claude-specific section if not.)
-
-Claude Code ships a built-in **`/insights`** command that analyzes the dev's own sessions and writes a usage report (HTML) — including a ready-made **"Suggested CLAUDE.md Additions"** section. A skill can't type a slash command into the TUI, but it CAN run `/insights` **headlessly** with `claude -p` (no browser opens; it just prints the report path) and read the HTML.
-
-**Privacy / generic-skill rule:** the report is the dev's own data, generated locally on their machine. Never paste report contents into this skill or anywhere shared — read it live, with the dev, only to drive the suggestions below. Skip anything that looks like a secret, token, or private path.
-
-Run it headless and get the sections as JSON (no browser; costs one model call; needs prior session history):
+Read the global file and show the dev what it costs them, every session:
 
 ```bash
-node "$SKILL_DIR/scripts/insights.mjs"            # cached for 1h
-node "$SKILL_DIR/scripts/insights.mjs" --no-cache # force a fresh run (e.g. right after pruning history)
+node "$SKILL_DIR/scripts/scan.mjs" --section memory
 ```
 
-It returns `{ ok, report, sections: { suggestedClaudeMd, whatYouWorkOn, howYouUse, friction } }`, or `{ ok:false, reason }` when there's no history / `claude -p` is unavailable. Use the report's "Suggested CLAUDE.md Additions" as the spine of your proposal; cross-reference "What You Work On" / friction for domain and pain points.
+Report line count, approximate tokens, and — in a shim setup — the combined total. Apply the budget
+in SKILL.md Rule 9. If the file is over it, say so here; the fix is step 16, not an ad-hoc trim.
 
-**If `sections` comes back empty (or with a `note`):** the `/insights` HTML layout probably changed under the parser. Don't give up — the `report` path is still valid: read the HTML file directly and extract the "Suggested CLAUDE.md Additions" content yourself. (The script deliberately doesn't cache empty parses, so a later run re-tries.)
+**What this step no longer does.** It used to mine `/insights` for "Suggested CLAUDE.md Additions"
+and paste them in as new rules. That is now wrong twice over: it pushes more rigid rules at a model
+that needs fewer, and it puts them in the always-resident file. `/insights` still runs — its findings
+now become **skills** in step 17 instead of rules here.
 
-**Fallback** (no session history yet, or `claude -p` unavailable) — mine usage counters directly, no python needed:
-
-```bash
-node "$SKILL_DIR/scripts/scan.mjs" --section usage
-```
-
-Returns the top skills/tools by `usageCount` with `lastUsed` dates. Stale heavy hitters (high count, old `lastUsed`, no current install) → mention as history, don't add as a preference.
-
-Then:
-- Read `~/.claude/CLAUDE.md`
-- Propose additions grounded in the report/scan: code preferences, favorite tools/workflows, recurring domains, recurring friction worth a guardrail
-- Ask (AskUserQuestion buttons) which to add/remove
-- Apply changes
-- Note: `/insights` reports accumulate in `~/.claude/usage-data/` — offer to prune old ones (ties back to cleanup step 6).
-
-**Keep it lean (hard budget).** `CLAUDE.md` loads into the context of *every* session — bloat is a permanent token tax. Enforce:
-- **≤ 200 lines and ideally ≤ ~1500 tokens** (`wc -l ~/.claude/CLAUDE.md`; `≈ chars/4` for tokens). If a proposed addition would blow the budget, don't just append — trim or merge first.
-- Every line must **change behavior**. Cut anything generic ("write clean code"), redundant, or already implied. One sharp line beats a paragraph.
-- Prefer terse rules / bullets over prose. No filler, no restating the obvious.
-- If the file is **already over budget**, offer to compress it (dedupe, merge sections, drop dead rules) before adding anything.
-- Show the before/after line+token count so the dev sees the cost.
+If the dev asks for content changes to the global file, route them to the `instructions` group:
+step 12 questions the rules already in it, step 16 restructures the whole file.

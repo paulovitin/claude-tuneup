@@ -4,9 +4,9 @@
 
 # claude-tuneup
 
-### Seu `~/.claude` é uma gaveta de bagunça. Isto limpa ela — e dá uma alma à sua instalação.
+### As regras que você escreveu para o Claude custam mais que a sua gaveta de bagunça.
 
-Um tune-up guiado e **totalmente reversível** que um agente de IA executa *com* você.<br/>
+Um agente de IA audita as instruções que carregam em **toda sessão** — e limpa o disco também.<br/>
 Cada mudança é um botão. Cada botão tem um *"O que isso faz?"*. Cada execução pode ser desfeita.
 
 <br/>
@@ -20,21 +20,37 @@ Cada mudança é um botão. Cada botão tem um *"O que isso faz?"*. Cada execuç
 
 ---
 
-Meses de uso do Claude Code deixam rastro: symlinks mortos, hooks órfãos, entradas de MCP apontando para o nada, marketplaces que nada mais usa, caches de plugin comendo **gigabytes** em silêncio — e um `CLAUDE.md` que ou está vazio, ou virou um imposto de 400 linhas de tokens que você paga em *toda sessão*.
+> **Rode o `/doctor` primeiro.** Ele já vem com o Claude Code, faz o inventário da sua instalação
+> melhor do que qualquer outra coisa, e é de graça. Depois rode o `claude-tuneup` no que sobrou.
+> Esta skill roda o `/doctor` por você e trabalha em cima do relatório dele — é um complemento, não
+> um substituto.
 
-Você pode fuçar o `~/.claude` na mão. Ou pode dizer uma palavra e deixar um agente te guiar item por item, explicando qualquer coisa que você não reconheça **antes** de você decidir:
+Meses de uso do Claude Code deixam rastro no disco. Mas o rastro mais caro está nas suas instruções:
+regras escritas para compensar modelos antigos, a mesma orientação copiada em quatro arquivos,
+descrições de skill que roteiam mal, um `SOUL.md` que você paga em toda sessão, sendo relevante ou
+não. Tudo isso carrega antes de você digitar uma palavra.
+
+Então a ferramenta faz outra pergunta, no lugar de "o que dá pra apagar?" — ela pergunta **"isso
+ainda ajuda?"**. Cada verificação do grupo `instructions` vem de uma fonte só: o artigo da Anthropic
+[**The new rules of context engineering for Claude 5 generation models**](https://claude.com/blog/the-new-rules-of-context-engineering-for-claude-5-generation-models).
 
 ```text
 > claude-tuneup
 
-🧹 PASSO 2: Plugins — 1.2G no total
+📝 PASSO 12: Regras que deveriam ser julgamento
 
-   marketplaces/old-experiments (412M) — nenhum plugin instalado usa
+   ~/.claude/CLAUDE.md:14
+   "por padrão não escreva comentários. Nunca escreva docstrings de vários parágrafos."
 
-   [ Remover (libera 412M) ]   [ Manter ]   [ O que isso faz? ]
+   Escrita para um modelo antigo. Os modelos atuais leem o código ao redor.
+   Sugestão: "Escreva código parecido com o código ao redor: mesma densidade
+             de comentários, mesma nomenclatura, mesmo estilo."
+
+   [ Reescrever ]   [ Manter como está ]   [ Apagar ]   [ O que isso faz? ]
 ```
 
-A experiência é essa. Sem flags para decorar, sem "espera, o que ele acabou de apagar?" — e se você se arrepender de algo, `claude-tuneup restore` traz de volta.
+O contrato é o mesmo de sempre: nada muda sem um botão, e `claude-tuneup restore` traz qualquer
+coisa de volta.
 
 ## ⚡ Instalação
 
@@ -45,8 +61,10 @@ npx skills add paulovitin/claude-tuneup
 Depois, no Claude Code:
 
 ```bash
-claude-tuneup            # pergunta qual grupo executar
+claude-tuneup            # executa tudo
 ```
+
+⏱️ Uma execução completa espera cerca de **6 minutos** no `/doctor` no início, e pergunta antes de gastar mais 6 para conferir o resultado.
 
 Primeira vez? Comece com `claude-tuneup --dry-run` — ele mostra tudo o que *faria* e não toca em nada.
 
@@ -57,8 +75,9 @@ Primeira vez? Comece com `claude-tuneup --dry-run` — ele mostra tudo o que *fa
 ## 🎛️ Uso
 
 ```bash
-claude-tuneup                    # pergunta qual grupo executar
+claude-tuneup                    # executa tudo
 claude-tuneup cleanup            # executa um grupo pelo nome
+claude-tuneup instructions       # audita suas regras + descrições
 claude-tuneup 1-3                # executa um intervalo de passos
 claude-tuneup 6,7                # executa passos específicos
 claude-tuneup claude.md soul.md  # combina grupos
@@ -68,49 +87,59 @@ claude-tuneup restore            # desfaz uma execução anterior (tudo, ou só 
 ```
 
 | Grupo | Passos | O que faz |
-| ----------------- | ------ | ---------- |
-| 🧹 **`cleanup`**   | 1–8    | Remove lixo + corrige integridade da config — skills, plugins, hooks, MCPs, projetos, diretórios de estado, arquivos raiz, `.claude.json` global |
-| 📄 **`claude.md`** | 9      | Melhora o `CLAUDE.md` com base no seu **uso real** via o relatório nativo `/insights` — mantendo enxuto (≤ 200 linhas), já que carrega em toda sessão |
-| ✨ **`soul.md`**   | 10     | Entrevista você e constrói um perfil `SOUL.md` — tom, autonomia, manias, stack, definição de pronto (também enxuto) |
-| 📊 **`summary`**   | 11     | Relatório final do que mudou + como desfazer *(sempre executa por último)* |
+| -------------------- | ------ | ---------- |
+| 🧹 **`cleanup`**      | 1–8    | Remove lixo + corrige integridade da config — skills, plugins, hooks, MCPs, projetos, diretórios de estado, arquivos raiz, `.claude.json` global |
+| 📝 **`instructions`** | 12–17  | Audita o que carrega em toda sessão: regras que deveriam ser julgamento, instruções que brigam com o próprio Claude Code, a mesma regra em quatro lugares, descrições que roteiam mal, e fluxos que você repete mas nunca escreveu |
+| 📄 **`claude.md`**    | 9      | Seu `CLAUDE.md` global + a ponte com o `AGENTS.md` *(para o `CLAUDE.md` versionado de um projeto, rode o `/doctor` — ele faz isso melhor)* |
+| ♻️ **`soul.md`**      | 10     | Migra um `SOUL.md` legado para a memória automática do Claude e o aposenta |
+| 📊 **`summary`**      | 11     | Relatório final do que mudou + como desfazer *(sempre executa por último)* |
 
-> Execute tudo, ou apenas um grupo. Sem argumento → ele pergunta primeiro.
-
----
-
-## ✨ Por que um `SOUL.md`?
-
-Limpar o Claude é metade do trabalho — a outra metade é o Claude saber **com quem está falando**.
-
-| Arquivo     | Responde        | Escopo |
-| ----------- | --------------- | ------- |
-| `CLAUDE.md` | **como** trabalhar | regras operacionais, por projeto |
-| `SOUL.md`   | **quem** você é | identidade estável — tom, autonomia, manias, stack, o que significa *"pronto"* |
-
-Ele carrega em toda sessão via `@SOUL.md`, então cada resposta serve a **você** em vez de um dev genérico. Chega de se reapresentar no começo de toda conversa.
+> Sem argumento, executa tudo. A numeração dos passos é histórica; a ordem real é diagnosticar → subtrair → reorganizar → adicionar.
 
 ---
 
-## 🤝 Convive bem com o `AGENTS.md` — sem perder a alma
+## ♻️ O `SOUL.md` foi aposentado — e migrado, não descartado
+
+Versões anteriores desta ferramenta entrevistavam você e escreviam um `SOUL.md`: um perfil carregado
+em toda sessão via `@SOUL.md`. O Claude Code agora faz isso sozinho, e melhor — ele guarda o que
+aprende sobre você como **memórias, lembradas quando são relevantes** em vez de carregadas sempre.
+
+Então a entrevista acabou. Se você já tem um `SOUL.md`, o tune-up **converte** o arquivo — uma
+memória por fato, com o tipo certo, mostradas inteiras para você — e só então move o arquivo para o
+ponto de restauração e remove o `@SOUL.md`. Nada é apagado antes do substituto estar no ar, e o undo
+traz de volta tanto o arquivo quanto o import.
+
+Preocupado com alcance? As memórias são por projeto por padrão, enquanto o `@SOUL.md` carregava em
+todos. O tune-up oferece fechar essa diferença com um ajuste, para que as memórias migradas valham em
+qualquer projeto — e ele nunca mexe no seu arquivo de configuração sem você dizer sim a essa pergunta
+específica.
+
+---
+
+## 🤝 Convive bem com o `AGENTS.md`
 
 O Claude Code não carrega `AGENTS.md` automaticamente, então repos que padronizam na convenção cross-tool (Codex, Cursor, Gemini CLI…) acabam com uma cópia em `CLAUDE.md` que **diverge em silêncio**. O tune-up detecta esse drift e oferece a ponte limpa: a verdade compartilhada vive uma vez só no `AGENTS.md`, e o `CLAUDE.md` vira um shim de três linhas —
 
 ```markdown
 @AGENTS.md
-@SOUL.md
 
 # Específico do Claude
 - (deltas que só o Claude Code deve ver)
 ```
 
-Uma pergunta opt-in; quem usa só Claude Code nunca vê isso. E o `@SOUL.md` fica no `CLAUDE.md` por regra — sua alma nunca vaza para o arquivo cross-tool.
+Uma pergunta opt-in; quem usa só Claude Code nunca vê isso. E import ganha de symlink aqui: um symlink faz o `CLAUDE.md` **ser** o `AGENTS.md`, então toda linha específica do Claude vaza para o arquivo que as outras ferramentas leem.
 
 ---
 
 ## 🛟 Segurança & undo (feito para os cautelosos — com carinho)
 
-O trabalho desta skill é apagar coisas, então ela é paranoica por design:
+Esta skill edita coisas que você escreveu e apaga coisas que são suas, então ela é paranoica por design:
 
+- **✍️ Suas palavras são suas.** O grupo `instructions` reescreve as regras que **você** escreveu — um
+  tipo de mudança mais delicado que apagar um cache. Por isso os passos 12–16 **só propõem**: mostram
+  a linha original, a reescrita sugerida e o motivo, e não mudam nada até você clicar. Absolutos de
+  segurança ("nunca dê push na main", "nunca comite segredo") ficam **literais** e nunca são
+  suavizados. Manter uma regra que a ferramenta sinalizou é sempre uma resposta válida.
 - **🔘 Nada é apagado sem confirmação.** Toda escolha é um botão, e toda pergunta tem a opção *"O que isso faz?"*, que inspeciona e explica o item **antes** de você decidir. Você nunca vai julgar algo que não consegue identificar.
 - **🗂️ Seu histórico de conversas é sagrado.** Transcrições e estado de sessão (`projects/`, `todos/`, `shell-snapshots/`, `file-history/`, `history.jsonl`) são os dados menos substituíveis da máquina e **nunca** são apagados em massa. O padrão é *manter*; no máximo ela oferece poda por idade ("transcrições com mais de 6 meses: 142 sessões, 1.2G") com confirmação explícita por pasta — avisando antes que é permanente e quebra `--resume` e `/insights`.
 - **↩️ Toda execução é reversível.** Configs são fotografadas e itens removidos são *movidos* (nunca `rm`) para `~/.claude-tuneup/backups/<run-id>/` — mantido **fora** do diretório da skill, para que uma atualização ou reinstalação não leve seu histórico de undo junto (sobrescreva com `$CLAUDE_TUNEUP_STATE`). Os snapshots ficam restritos ao dono (o `.claude.json` pode carregar tokens). Desfaça quando quiser — tudo, só as configs, ou só os itens removidos:
@@ -122,6 +151,25 @@ O trabalho desta skill é apagar coisas, então ela é paranoica por design:
 - **🧯 Fusível contra mudança de formato.** Se o `installed_plugins.json` algum dia parsear vazio enquanto há conteúdo de plugin no disco, a skill se recusa a tratar "fora da lista" como "desinstalado" — uma mudança de formato de arquivo não consegue induzi-la a propor uma desinstalação em massa.
 - **♻️ Sem reclaims inúteis.** Artefatos que se regeneram (venvs, caches, runtimes, `statsig`) são detectados — a skill aponta a correção de verdade (desabilitar o plugin dono) em vez de apagar algo que só vai se reconstruir.
 - **🔒 Privacidade.** O relatório do `/insights` é dado *seu* e local — lido ao vivo para guiar sugestões, nunca copiado para a skill ou para qualquer lugar compartilhado. Credenciais inline em configs de MCP são sinalizadas só pelo **nome** da variável de ambiente; valores nunca são impressos.
+
+---
+
+## 📐 De onde vêm as regras
+
+O grupo `instructions` não é um conjunto de opiniões. Cada verificação implementa uma regra do artigo
+[**The new rules of context engineering for Claude 5 generation models**](https://claude.com/blog/the-new-rules-of-context-engineering-for-claude-5-generation-models):
+
+| A regra | A verificação |
+| --- | --- |
+| Prefira julgamento a regras rígidas | **passo 12** — reescreve regras feitas para modelos antigos, mantendo os absolutos de segurança intactos |
+| Não brigue com o próprio agente | **passo 13** — sinaliza instruções que contradizem o que o Claude Code já faz |
+| Diga uma vez só | **passo 14** — a mesma instrução no `CLAUDE.md`, no corpo dos agentes, e nas descrições de agentes e skills |
+| Interface em vez de exemplos | **passo 15** — descrições que roteiam por capacidade, não por frases de exemplo |
+| Revelação progressiva | **passo 16** — o que fica sempre carregado e o que vira skill carregada sob demanda |
+| Deixe a memória automática ser a memória | **passo 10** — o `SOUL.md` se aposenta na memória do próprio Claude Code |
+
+A skill se cobra as mesmas regras: a divisão abaixo é revelação progressiva, e só o playbook do grupo
+que você está rodando entra no contexto.
 
 ---
 
@@ -137,13 +185,17 @@ skills/claude-tuneup/
 ├─ VERSION                # versão da skill instalada (alimenta o aviso de update)
 ├─ references/            # playbooks por grupo, carregados só quando o grupo roda
 │  ├─ cleanup.md          #   passos 1–8
+│  ├─ instructions.md     #   passos 12–17
+│  ├─ harness-invariants.md  # o que o Claude Code já faz sozinho (lista do passo 13)
 │  ├─ claude-md.md        #   passo 9
 │  └─ soul-md.md          #   passo 10
 └─ scripts/               # determinísticos, cross-OS (coletar & aplicar)
    ├─ scan.mjs            # descoberta read-only → JSON (--section para só uma fatia)
    ├─ backup.mjs          # restore point + snapshot + stash
    ├─ restore.mjs         # listar / aplicar (tudo, --configs-only, --items-only)
+   ├─ doctor.mjs          # roda o /doctor nativo headless, só relatório (cache 1h)
    ├─ insights.mjs        # roda /insights headless (cache 1h; --no-cache)
+   ├─ audit-instructions.mjs  # sinais nas instruções + descrições residentes → JSON
    ├─ consolidate.mjs     # move uma skill para ~/.agents/skills + link de volta (junction no Windows)
    ├─ validate-json.mjs   # sanidade de JSON após cada edição de config
    └─ version-check.mjs   # aviso de update barato em tokens (cache 24h, silencioso offline)
@@ -171,7 +223,16 @@ Sim — os helpers são Node puro, a validação de JSON não depende de `python
 O contrário: ele detecta drift entre CLAUDE.md↔AGENTS.md, consolida com a sua confirmação e transforma o `CLAUDE.md` num shim de import para toda ferramenta ler uma fonte de verdade só. O budget de tokens passa a valer no total *combinado*, já que imports também carregam no launch.
 
 **Quanto custa um dry run?**
-Nada. Ele lê, reporta tamanhos e candidatos, e não cria backup, não muda nada, não faz chamada de modelo (a chamada do `/insights` só acontece no passo 9 e fica em cache por uma hora).
+Nenhuma mudança e nenhum backup — ele só lê. Mas ele ainda faz as duas chamadas de diagnóstico (`/doctor` e `/insights`), as duas somente-leitura e em cache por uma hora, então conte com a espera do `/doctor`.
+
+**Por que ele roda o `/doctor` em vez de substituir?**
+Porque o `/doctor` é melhor no inventário — ele enxerga o uso real de cada componente em todos os seus projetos, e o custo em tokens residentes, que nenhuma skill externa consegue medir. Rodar ele primeiro faz o claude-tuneup gastar esforço no que o `/doctor` não toca: seu `CLAUDE.md` **global**, as descrições dos seus agentes e skills, um `SOUL.md` legado, e o disco.
+
+**Ele vai reescrever meu `CLAUDE.md` sem me avisar?**
+Não. Toda reescrita aparece como antes/depois com o motivo, e só é aplicada se você clicar. Regras de segurança ficam palavra por palavra. E a execução inteira fica dentro de um ponto de restauração, então `claude-tuneup restore` traz o arquivo original de volta.
+
+**O `/doctor` pode mudar coisas quando a skill roda ele?**
+Não. A chamada sempre carrega uma instrução de só relatar, e um teste garante que ela está presente em todo comando que a skill monta — uma execução headless não tem confirmação para segurar nada, então a instrução é a trava.
 
 ---
 

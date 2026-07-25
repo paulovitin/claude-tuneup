@@ -11,6 +11,66 @@ fixes only.
 
 ## [Unreleased]
 
+The version this becomes is **5.0.0** — a deliberate jump. claude-tuneup stops being an install
+cleaner and becomes an **instruction auditor**, following Anthropic's
+[The new rules of context engineering for Claude 5 generation models](https://claude.com/blog/the-new-rules-of-context-engineering-for-claude-5-generation-models).
+Almost nothing about a run behaves the way 0.4.x behaved.
+
+### Added
+
+- **New `instructions` group (steps 12–17)** — the new center of the tool. Audits what loads into
+  every session: rules that were written to compensate for older models and should now be judgment
+  (12), instructions that contradict what the Claude Code runtime already does (13), the same
+  instruction repeated across `CLAUDE.md`, agent bodies, agent descriptions and skill descriptions
+  (14), `description` fields that route badly (15), and a full restructure of the global
+  `~/.claude/CLAUDE.md` into what stays, what becomes a skill, and what becomes a memory (16).
+  Playbook: `references/instructions.md`.
+- **`references/harness-invariants.md`** — the seed list behind step 13, with a per-entry evidence
+  label (**confirmed** vs **inferred**) so a flagged conflict can be judged on how well we know it.
+  States its own limit out loud: the session prompt isn't readable from disk, so this check is
+  incomplete by construction and reports "conflicts I can currently detect", never a clean bill.
+- **`scripts/doctor.mjs`** — runs Claude Code's built-in `/doctor` headlessly and parses its report
+  into JSON. The call always carries a report-only instruction, and a test asserts it is present in
+  every command the module builds: a headless run has no confirmation prompts, so that instruction
+  is the safeguard. 600s timeout (a real pass measured 359s), cached 1h, degrades silently.
+- **`scripts/audit-instructions.mjs`** — extracts instruction-line signals and every resident
+  `description`. Detects only; classification and rewriting stay with the agent.
+- **STEP 0.6** — `/doctor` and `/insights` both fire at the start of a run, in parallel. `/insights`
+  runs here rather than where it's consumed so it reads the session history *before* cleanup step 6
+  offers to prune it.
+- **Optional verification pass** — step 11 offers a second `/doctor` run, with the ~6-minute cost
+  stated plainly, and builds the summary from the difference between the two reports. Skipped
+  silently when the run changed nothing. A hard filter prevents it from proposing removal of skills
+  this run just created (they have zero usage by definition).
+- `--help` on every script, and `scan.mjs --sections` to list valid section names. Previously
+  `insights.mjs --help` spent a real model call before printing anything.
+
+### Changed
+
+- **`claude-tuneup` with no argument now runs everything.** The "which group?" menu is gone. Every
+  individual change is still confirmed one at a time, so a full run is safe by construction;
+  `--dry-run` is the recommended first contact.
+- **Positioning: a complement to `/doctor`, not a competitor.** The skill runs `/doctor` itself and
+  works from its report — steps 1, 2 and 4 read its usage verdicts instead of guessing. README,
+  help card, skill description and `package.json` description all rewritten to say so.
+- **`insights.mjs` output is redirected.** It no longer feeds "Suggested CLAUDE.md Additions" into
+  your `CLAUDE.md` as new rules. It now drives **step 17**, which proposes a *skill* for a recurring
+  workflow you never wrote down. This is the one thing in the tool that reads behavior rather than
+  files — every other check, including `/doctor`'s, can only find what you already wrote.
+- **Step 9 narrows to the global `CLAUDE.md`** and hands a project's checked-in `CLAUDE.md` to
+  `/doctor` by name, whose checks 3 and 4 do that job better.
+- Skill `description` de-example-stuffed to state capability and boundary.
+
+### Removed
+
+- **`SOUL.md` creation.** The interview, all eight axes, and the `@SOUL.md` wiring are gone. Claude
+  Code's auto-memory does this now, and it recalls when relevant instead of loading unconditionally.
+  **Existing files are migrated, not dropped:** step 10 converts a `SOUL.md` into typed memory files,
+  shows them in full, and only then moves the file into the restore point and removes the import.
+  Nothing is removed before the replacement is live, and undo restores both. The `soul.md` group name
+  and alias stay indefinitely — someone who comes back in a year and types what they always typed
+  must still be caught and migrated. If auto-memory is disabled, the migration is not offered at all.
+
 ## [0.4.1] - 2026-06-12
 
 ### Added

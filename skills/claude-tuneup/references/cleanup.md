@@ -5,6 +5,14 @@
 
 Run each step's scan with its own section — e.g. `node "$SKILL_DIR/scripts/scan.mjs" --section skills` — instead of one giant scan, so only the data the current step needs enters the context. Inline shell (`ls`, `du`) is the fallback when the script can't run.
 
+**Every JSON edit in this playbook is followed by `validate-json.mjs`** (SKILL.md Rule 4). Steps 3, 4, 5 and 8 all edit config; the rule is stated once here and applies to all of them.
+
+**Use the `/doctor` report from STEP 0.6 where it applies.** It carries real usage counts and its own
+keep/remove verdict per component — evidence this skill's own scan cannot produce. Steps 1, 2 and 4
+should read those verdicts rather than guessing at whether something is used. Two limits: if the
+report came back `ok:false`, carry on without it, guessing as before; and its verdict is **input to
+the question, never a substitute for asking** — the dev still decides, through the same buttons.
+
 ---
 
 ## STEP 1: Skills (`~/.claude/skills/` and `~/.agents/skills/`)
@@ -67,7 +75,7 @@ node "$SKILL_DIR/scripts/scan.mjs" --section hooks
 The scan checks **both** `settings.json` and `settings.local.json` (`settingsChecked` lists which were read) — a hook wired only in the local file is NOT an orphan. Each on-disk hook carries `referencedIn`.
 
 - **`onDiskNotReferenced`** → candidate orphans, but mind the scan's `note`: a project-level `.claude/settings.json` somewhere may still reference it, and the scan can't see every repo. Phrase it honestly — "not referenced in your user-level settings; does it ring a bell from a project?" — then ask whether to stash.
-- **Hooks in settings but NOT on disk** → dead entries; ask whether to remove from the JSON (validate after editing — Rule 4).
+- **Hooks in settings but NOT on disk** → dead entries; ask whether to remove from the JSON.
 - **Active hooks** (on disk + referenced) → show what each does (read the file header), ask whether to keep.
 
 ---
@@ -84,7 +92,6 @@ Servers are returned per source (`global`, `settings`, `settingsLocal`) and clas
 - **`transport: "local"`** → check `missingPaths`. A server whose command/paths no longer exist → ask whether to remove the entry. Disabled-in-project servers → ask whether to remove.
 - **`secretHints`** lists env var **names** that look like inline credentials (the scan never prints values — neither should you). Alert immediately: plaintext keys in `.claude.json` are a leak risk; suggest moving them to the environment or a secret manager.
 
-Every removal is a JSON edit → validate after (Rule 4).
 
 ---
 
@@ -98,7 +105,6 @@ Returns `total`, `alive`, and `gone` (project paths that no longer exist on disk
 
 - For each `gone` path → ask whether to remove the entry (these often pile up for years).
 - For alive projects → check whether the inner `mcpServers`/`mcpConfig` has dead servers (same trait rules as STEP 4).
-- Edits → validate after (Rule 4).
 
 ---
 

@@ -3,7 +3,7 @@
   "version": "0.4.1",
   "private": true,
   "type": "module",
-  "description": "Tune up a Claude Code install — clean, optimize, and give it a soul.",
+  "description": "Audit the instructions your Claude Code install loads every session — and reclaim its disk. Complements the built-in /doctor.",
   "license": "MIT",
   "scripts": {
     "test": "node --test"

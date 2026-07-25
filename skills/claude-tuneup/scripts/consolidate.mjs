@@ -9,6 +9,7 @@ import path from 'node:path';
 import { CLAUDE_DIR, AGENTS_DIR, exists, move, linkDir, out } from './lib.mjs';
 
 const [name, flag] = process.argv.slice(2);
+if (name === '--help') { process.stdout.write('Usage: node consolidate.mjs <skill-name> [--undo]\n'); process.exit(0); }
 if (!name) { console.error('usage: consolidate.mjs <skill-name> [--undo]'); process.exit(1); }
 
 const src = path.join(CLAUDE_DIR, 'skills', name);

@@ -105,4 +105,4 @@ function apply(rp, { configsOnly = false, itemsOnly = false } = {}) {
 const [cmd, rp, flag] = process.argv.slice(2);
 if (cmd === 'list') list();
 else if (cmd === 'apply') apply(rp, { configsOnly: flag === '--configs-only', itemsOnly: flag === '--items-only' });
-else { console.error('usage: restore.mjs list | apply <RP> [--configs-only|--items-only]'); process.exit(1); }
+else { console.error('Usage: node restore.mjs list | apply <RP> [--configs-only|--items-only]'); process.exit(1); }

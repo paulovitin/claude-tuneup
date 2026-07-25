@@ -3,7 +3,29 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { checkCmdPath, hookReferenced, classifyMcp, ageSpan } from './scan.mjs';
+
+const SCRIPTS = path.dirname(fileURLToPath(import.meta.url));
+
+function makeMemoryHome() {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'tuneup-memory-'));
+  fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.claude', 'settings.json'), '{}');
+  return home;
+}
+
+function scanMemory(home, extraEnv = {}) {
+  const env = { ...process.env, ...extraEnv, CLAUDE_TUNEUP_HOME: home };
+  delete env.CLAUDE_CODE_DISABLE_AUTO_MEMORY;
+  if (Object.hasOwn(extraEnv, 'CLAUDE_CODE_DISABLE_AUTO_MEMORY')) {
+    env.CLAUDE_CODE_DISABLE_AUTO_MEMORY = extraEnv.CLAUDE_CODE_DISABLE_AUTO_MEMORY;
+  }
+  return JSON.parse(execFileSync(process.execPath, [path.join(SCRIPTS, 'scan.mjs'), '--section', 'memory'], {
+    encoding: 'utf8', env,
+  })).memory;
+}
 
 test('checkCmdPath does not flag URL args as missing local paths', () => {
   const spec = { command: 'npx', args: ['-y', 'mcp-remote', 'https://example.com/sse'] };
@@ -128,4 +150,58 @@ test('analyzeMemory: symlink counts as linked and is not double-counted', () => 
   assert.equal(m.drift, false);
   assert.equal(m.combinedApproxTokens, m.files['CLAUDE.md'].approxTokens,
     'CLAUDE.md *is* AGENTS.md — counting both would double it');
+});
+
+test('scan memory reports auto-memory enablement and does not guess a per-project directory', () => {
+  const home = makeMemoryHome();
+  let memory = scanMemory(home);
+  assert.equal(memory.autoMemoryEnabled, true);
+  assert.equal(memory.memoryScope, 'per-project');
+  assert.equal(memory.memoryDir, null);
+
+  memory = scanMemory(home, { CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' });
+  assert.equal(memory.autoMemoryEnabled, false);
+
+  fs.writeFileSync(path.join(home, '.claude', 'settings.json'), JSON.stringify({ autoMemoryEnabled: false }));
+  memory = scanMemory(home);
+  assert.equal(memory.autoMemoryEnabled, false);
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('scan memory resolves global memory, observes team mount presence, and reports each SOUL status', () => {
+  const home = makeMemoryHome();
+  const claude = path.join(home, '.claude');
+  const memoryPath = path.join(home, 'personal-memory');
+  fs.mkdirSync(path.join(memoryPath, 'team'), { recursive: true });
+  fs.writeFileSync(path.join(memoryPath, 'MEMORY.md'), 'index');
+  fs.writeFileSync(path.join(memoryPath, 'preference.md'), 'brief');
+  fs.writeFileSync(path.join(claude, 'settings.json'), JSON.stringify({ autoMemoryDirectory: '~/personal-memory' }));
+
+  let memory = scanMemory(home);
+  assert.equal(memory.autoMemoryDirectory, memoryPath);
+  assert.equal(memory.memoryScope, 'global');
+  assert.deepEqual(memory.memoryDir, { path: memoryPath, exists: true, fileCount: 2 });
+  assert.equal(memory.teamMounts, true);
+  assert.equal(memory.soulStatus, 'absent');
+
+  fs.writeFileSync(path.join(claude, 'SOUL.md'), 'profile');
+  memory = scanMemory(home);
+  assert.equal(memory.soulStatus, 'present-unwired');
+
+  fs.writeFileSync(path.join(claude, 'CLAUDE.md'), '@SOUL.md\n');
+  memory = scanMemory(home);
+  assert.equal(memory.soulStatus, 'present-wired');
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+// The project dir name is an undocumented transform. We may derive a candidate, but we
+// must never write to a path we only guessed — an unmatched cwd has to yield null.
+test('memoryDir is null when no projects/ entry matches the cwd', () => {
+  const home = makeMemoryHome();
+  fs.mkdirSync(path.join(home, '.claude', 'projects', '-some-other-project', 'memory'), { recursive: true });
+  const m = scanMemory(home);
+  assert.equal(m.memoryDir, null);
+  assert.equal(m.memoryScope, 'per-project');
+  assert.equal(m.teamMounts, false);
+  fs.rmSync(home, { recursive: true, force: true });
 });

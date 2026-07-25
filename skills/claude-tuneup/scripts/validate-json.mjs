@@ -6,6 +6,7 @@
 import fs from 'node:fs';
 
 const files = process.argv.slice(2);
+if (files[0] === '--help') { process.stdout.write('Usage: node validate-json.mjs <file> [more files...]\n'); process.exit(0); }
 if (!files.length) { console.error('usage: validate-json.mjs <file> [...]'); process.exit(1); }
 let failed = false;
 for (const f of files) {
