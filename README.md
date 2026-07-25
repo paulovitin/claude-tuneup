@@ -130,8 +130,13 @@ One opt-in question; Claude-only users never see it. Imports beat symlinks here:
 
 ## 🛟 Safety & undo (built for the cautious — affectionately)
 
-This skill's job is deleting things, so it's paranoid by design:
+This skill edits things you wrote and deletes things you own, so it's paranoid by design:
 
+- **✍️ Your words are yours.** The `instructions` group rewrites the rules *you* wrote, which is a
+  sharper kind of change than deleting a cache. So steps 12–16 **only propose** — they show the
+  original line, the suggested rewrite, and the reason, and change nothing until you pick a button.
+  Safety-critical absolutes ("never push to main", "never commit secrets") are kept **verbatim** and
+  are never softened. Keeping a rule the tool flagged is always a valid answer.
 - **🔘 Nothing deleted without confirmation.** Every choice is a button, and every question has a *"What does this do?"* option that inspects and explains the item **before** you decide. You will never be asked to judge something you can't identify.
 - **🗂️ Your chat history is sacred.** Conversation transcripts and session state (`projects/`, `todos/`, `shell-snapshots/`, `file-history/`, `history.jsonl`) are the least replaceable data on the machine and are **never** bulk-deleted. The default is *keep*; at most it offers age-scoped pruning ("transcripts older than 6 months: 142 sessions, 1.2G") with explicit per-folder confirmation — warning you first that it's permanent and breaks `--resume` and `/insights`.
 - **↩️ Every run is undoable.** Configs are snapshotted and removed items are *moved* (never `rm`-ed) into `~/.claude-tuneup/backups/<run-id>/` — kept **outside** the skill dir so an update or reinstall can't wipe your undo history (override with `$CLAUDE_TUNEUP_STATE`). Snapshots are owner-only (`.claude.json` can carry tokens). Roll back anytime — fully, or just configs, or just removed items:
@@ -219,6 +224,9 @@ No changes and no backup — it only reads. It does still make the two diagnosti
 
 **Why does it run `/doctor` instead of replacing it?**
 Because `/doctor` is better at taking inventory — it sees real per-component usage across every project, and resident-token costs, which no external skill can measure. Running it first means claude-tuneup spends its effort on what `/doctor` doesn't touch: your **global** `CLAUDE.md`, your agent and skill descriptions, a legacy `SOUL.md`, and disk.
+
+**Will it rewrite my `CLAUDE.md` behind my back?**
+No. Every rewrite is shown as a before/after with a reason, and applied only if you click. Safety rules are kept word-for-word. And the whole run sits inside a restore point, so `claude-tuneup restore` brings back the original file.
 
 **Is `/doctor` allowed to change things when the skill runs it?**
 No. The call always carries a report-only instruction, and a test asserts it's present in every command the skill builds — a headless run has no confirmation prompts to stop it, so the instruction is the safeguard.

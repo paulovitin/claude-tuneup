@@ -133,8 +133,13 @@ Uma pergunta opt-in; quem usa só Claude Code nunca vê isso. E import ganha de 
 
 ## 🛟 Segurança & undo (feito para os cautelosos — com carinho)
 
-O trabalho desta skill é apagar coisas, então ela é paranoica por design:
+Esta skill edita coisas que você escreveu e apaga coisas que são suas, então ela é paranoica por design:
 
+- **✍️ Suas palavras são suas.** O grupo `instructions` reescreve as regras que **você** escreveu — um
+  tipo de mudança mais delicado que apagar um cache. Por isso os passos 12–16 **só propõem**: mostram
+  a linha original, a reescrita sugerida e o motivo, e não mudam nada até você clicar. Absolutos de
+  segurança ("nunca dê push na main", "nunca comite segredo") ficam **literais** e nunca são
+  suavizados. Manter uma regra que a ferramenta sinalizou é sempre uma resposta válida.
 - **🔘 Nada é apagado sem confirmação.** Toda escolha é um botão, e toda pergunta tem a opção *"O que isso faz?"*, que inspeciona e explica o item **antes** de você decidir. Você nunca vai julgar algo que não consegue identificar.
 - **🗂️ Seu histórico de conversas é sagrado.** Transcrições e estado de sessão (`projects/`, `todos/`, `shell-snapshots/`, `file-history/`, `history.jsonl`) são os dados menos substituíveis da máquina e **nunca** são apagados em massa. O padrão é *manter*; no máximo ela oferece poda por idade ("transcrições com mais de 6 meses: 142 sessões, 1.2G") com confirmação explícita por pasta — avisando antes que é permanente e quebra `--resume` e `/insights`.
 - **↩️ Toda execução é reversível.** Configs são fotografadas e itens removidos são *movidos* (nunca `rm`) para `~/.claude-tuneup/backups/<run-id>/` — mantido **fora** do diretório da skill, para que uma atualização ou reinstalação não leve seu histórico de undo junto (sobrescreva com `$CLAUDE_TUNEUP_STATE`). Os snapshots ficam restritos ao dono (o `.claude.json` pode carregar tokens). Desfaça quando quiser — tudo, só as configs, ou só os itens removidos:
@@ -222,6 +227,9 @@ Nenhuma mudança e nenhum backup — ele só lê. Mas ele ainda faz as duas cham
 
 **Por que ele roda o `/doctor` em vez de substituir?**
 Porque o `/doctor` é melhor no inventário — ele enxerga o uso real de cada componente em todos os seus projetos, e o custo em tokens residentes, que nenhuma skill externa consegue medir. Rodar ele primeiro faz o claude-tuneup gastar esforço no que o `/doctor` não toca: seu `CLAUDE.md` **global**, as descrições dos seus agentes e skills, um `SOUL.md` legado, e o disco.
+
+**Ele vai reescrever meu `CLAUDE.md` sem me avisar?**
+Não. Toda reescrita aparece como antes/depois com o motivo, e só é aplicada se você clicar. Regras de segurança ficam palavra por palavra. E a execução inteira fica dentro de um ponto de restauração, então `claude-tuneup restore` traz o arquivo original de volta.
 
 **O `/doctor` pode mudar coisas quando a skill roda ele?**
 Não. A chamada sempre carrega uma instrução de só relatar, e um teste garante que ela está presente em todo comando que a skill monta — uma execução headless não tem confirmação para segurar nada, então a instrução é a trava.
