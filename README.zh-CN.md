@@ -17,6 +17,9 @@ AI Agent 会审查**每次会话**加载的指令规则 — 并同步清理磁�
 [![EN](https://img.shields.io/badge/README-English-000?style=for-the-badge)](README.md)
 [![pt-BR](https://img.shields.io/badge/README-pt--BR-30A3DC?style=for-the-badge)](README.pt-BR.md)
 [![ja](https://img.shields.io/badge/README-日本語-red?style=for-the-badge)](README.ja.md)
+[![es](https://img.shields.io/badge/README-Español-yellow?style=for-the-badge)](README.es.md)
+[![fr](https://img.shields.io/badge/README-Français-blue?style=for-the-badge)](README.fr.md)
+[![ru](https://img.shields.io/badge/README-Русский-purple?style=for-the-badge)](README.ru.md)
 
 </div>
 

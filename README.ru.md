@@ -1,0 +1,120 @@
+<div align="center">
+
+<img src="assets/logo.png" alt="claude-tuneup" width="220" />
+
+# claude-tuneup
+
+### Правила, которые вы написали для Claude, стоят вам дороже, чем коробка со старым хламом.
+
+AI-агент проводит аудит инструкций, загружаемых в **каждую сессию** — и очищает диск.<br/>
+Каждое изменение — это кнопка. У каждой кнопки есть пояснение *"Что это делает?"*. Любой запуск можно отменить.
+
+<br/>
+
+[![Установить](https://img.shields.io/badge/npx_skills_add-paulovitin%2Fclaude--tuneup-000?style=for-the-badge&logo=anthropic&logoColor=white)](https://github.com/paulovitin/claude-tuneup)
+[![Лицензия: MIT](https://img.shields.io/badge/Лицензия-MIT-22c55e?style=for-the-badge)](#-лицензия)
+[![Claude Code](https://img.shields.io/badge/Claude_Code-skill-d97757?style=for-the-badge)](https://claude.com/claude-code)
+[![EN](https://img.shields.io/badge/README-English-000?style=for-the-badge)](README.md)
+[![pt-BR](https://img.shields.io/badge/README-pt--BR-30A3DC?style=for-the-badge)](README.pt-BR.md)
+[![ja](https://img.shields.io/badge/README-日本語-red?style=for-the-badge)](README.ja.md)
+[![zh-CN](https://img.shields.io/badge/README-简体中文-red?style=for-the-badge)](README.zh-CN.md)
+[![es](https://img.shields.io/badge/README-Español-yellow?style=for-the-badge)](README.es.md)
+[![fr](https://img.shields.io/badge/README-Français-blue?style=for-the-badge)](README.fr.md)
+
+</div>
+
+---
+
+> **Сначала запустите `/doctor`.** Он поставляется в составе Claude Code, делает инвентаризацию вашей установки лучше чего-либо другого и абсолютно бесплатен. Затем запустите `claude-tuneup` для оставшихся задач. Этот навык запускает `/doctor` за вас и работает на основе его отчета.
+
+Месяцы использования Claude Code оставляют следы на диске. Но самый дорогой след — в ваших инструкциях: правила, написанные для компенсации старых моделей, одинаковые инструкции, скопированные в четыре файла, неточные описания навыков, платный `SOUL.md`, загружаемый в каждую сессию. Все это расходует токены до того, как вы напечатаете первое слово.
+
+Инструмент задает другой вопрос вместо "что можно удалить?" — он спрашивает **"помогает ли это до сих пор?"**. Каждая проверка в группе `instructions` основана на официальном руководстве Anthropic
+[**The new rules of context engineering for Claude 5 generation models**](https://claude.com/blog/the-new-rules-of-context-engineering-for-claude-5-generation-models).
+
+```text
+> claude-tuneup
+
+📝 ШАГ 12: Правила, которые должны быть выбором модели
+
+   ~/.claude/CLAUDE.md:14
+   "по умолчанию не пишите комментарии. Никогда не пишите многоабзацные docstring."
+
+   Написано для старой модели. Современам модели считывают окружающий код.
+   Предложение: "Пишите код, который выглядит как окружающий код: соблюдайте
+              плотность комментариев, именование и стиль."
+
+   [ Переписать ]   [ Оставить как есть ]   [ Удалить ]   [ Что это делает? ]
+```
+
+Тот же принцип, что и всегда: ничего не меняется без нажатия кнопки, а `claude-tuneup restore` полностью восстанавливает исходное состояние.
+
+## ⚡ Установка
+
+```bash
+npx skills add paulovitin/claude-tuneup
+```
+
+Затем в Claude Code:
+
+```bash
+claude-tuneup            # запускает все шаги
+```
+
+Впервые используете? Начните с `claude-tuneup --dry-run` — покажет всё, что *было бы* изменено, не трогая файлы.
+
+⏱️ Полный запуск занимает около **6 минут** на шаге `/doctor` в начале и запрашивает подтверждение перед проверкой результатов.
+
+---
+
+## 🎛️ Использование
+
+```bash
+claude-tuneup                    # запускает все шаги
+claude-tuneup cleanup            # запуск конкретной группы по имени
+claude-tuneup instructions       # аудит правил и описаний
+claude-tuneup 1-3                # запуск диапазона шагов
+claude-tuneup 6,7                # запуск конкретных шагов
+claude-tuneup claude.md soul.md  # объединение групп
+claude-tuneup --dry-run          # сканирование и отчет без изменений
+claude-tuneup help               # список групп и команд
+claude-tuneup restore            # отмена предыдущего запуска
+```
+
+| Группа | Шаги | Описание |
+| -------------------- | ------ | ------------- |
+| 🧹 **`cleanup`**      | 1–8    | Удаление мусора + исправление конфигурации — навыки, плагины, хуки, MCP, проекты, директории состояния, глобальный `.claude.json` |
+| 📝 **`instructions`** | 12–17  | Аудит содержимого сессий: избыточные правила, конфликты с рантаймом, дублирование правил в нескольких файлах |
+| 📄 **`claude.md`**    | 9      | Глобальный `CLAUDE.md` + связка с `AGENTS.md` |
+| ♻️ **`soul.md`**      | 10     | Миграция устаревшего `SOUL.md` в авто-память Claude |
+| 📊 **`summary`**      | 11     | Финальный отчет об изменениях и инструкции по отмене *(всегда выполняется последним)* |
+
+---
+
+## 📐 Откуда берутся правила
+
+Группа `instructions` реализует правила из руководства Anthropic [**The new rules of context engineering for Claude 5 generation models**](https://claude.com/blog/the-new-rules-of-context-engineering-for-claude-5-generation-models):
+
+| Правило | Проверка |
+| --- | --- |
+| Гибкость вместо жестких правил | **шаг 12** — переписывание правил для старых моделей |
+| Не конфликтуйте с рантаймом | **шаг 13** — выявление инструкций, противоречащих рантайму |
+| Избегайте дублирования | **шаг 14** — устранение дубликатов между `CLAUDE.md` и навыками |
+| Интерфейсы вместо примеров | **шаг 15** — оптимизация полей `description` |
+| Постепенное раскрытие контекста | **шаг 16** — разделение постоянного и подгружаемого контекста |
+| Использование авто-памяти | **шаг 10** — перенос `SOUL.md` в память Claude Code |
+
+---
+
+## 🛟 Безопасность и отмена (Restore)
+
+- **✍️ Ваши тексты принадлежат вам:** шаги 12–16 предлагают варианты с объяснением и не меняют файлы без нажатия кнопки.
+- **🔘 Подтверждение каждого удаления:** у каждого выбора есть пояснение.
+- **🗂️ История чатов в безопасности:** транскрипты сессий не удаляются массово.
+- **↩️ Любой запуск можно отменить:** резервные копии создаются автоматически в `~/.claude-tuneup/backups/<run-id>/`.
+
+---
+
+## 📄 Лицензия
+
+[MIT](LICENSE) © [paulovitin](https://github.com/paulovitin)
