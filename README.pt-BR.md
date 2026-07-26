@@ -15,6 +15,8 @@ Cada mudança é um botão. Cada botão tem um *"O que isso faz?"*. Cada execuç
 [![Licença: MIT](https://img.shields.io/badge/Licen%C3%A7a-MIT-22c55e?style=for-the-badge)](#-licença)
 [![Claude Code](https://img.shields.io/badge/Claude_Code-skill-d97757?style=for-the-badge)](https://claude.com/claude-code)
 [![EN](https://img.shields.io/badge/README-English-000?style=for-the-badge)](README.md)
+[![ja](https://img.shields.io/badge/README-日本語-red?style=for-the-badge)](README.ja.md)
+[![zh-CN](https://img.shields.io/badge/README-简体中文-red?style=for-the-badge)](README.zh-CN.md)
 
 </div>
 
