@@ -14,16 +14,18 @@ AIエージェントが**毎セッション**読み込まれる指示ルール�
 [![Install](https://img.shields.io/badge/npx_skills_add-paulovitin%2Fclaude--tuneup-000?style=for-the-badge&logo=anthropic&logoColor=white)](https://github.com/paulovitin/claude-tuneup)
 [![License: MIT](https://img.shields.io/badge/License-MIT-22c55e?style=for-the-badge)](#-ライセンス)
 [![Claude Code](https://img.shields.io/badge/Claude_Code-skill-d97757?style=for-the-badge)](https://claude.com/claude-code)
-[![EN](https://img.shields.io/badge/README-English-000?style=for-the-badge)](README.md)
-[![pt-BR](https://img.shields.io/badge/README-pt--BR-30A3DC?style=for-the-badge)](README.pt-BR.md)
-[![zh-CN](https://img.shields.io/badge/README-简体中文-red?style=for-the-badge)](README.zh-CN.md)
-[![es](https://img.shields.io/badge/README-Español-yellow?style=for-the-badge)](README.es.md)
-[![fr](https://img.shields.io/badge/README-Français-blue?style=for-the-badge)](README.fr.md)
-[![ru](https://img.shields.io/badge/README-Русский-purple?style=for-the-badge)](README.ru.md)
+
+<br/>
+
+🌐 **言語を選択:**<br/>
+🇺🇸 [English](README.md) • 🇧🇷 [Português](README.pt-BR.md) • 🇯🇵 **日本語** • 🇨🇳 [简体中文](README.zh-CN.md) • 🇪🇸 [Español](README.es.md) • 🇫🇷 [Français](README.fr.md) • 🇷🇺 [Русский](README.ru.md)
 
 </div>
 
 ---
+
+> [!IMPORTANT]
+> **ご存知ですか？** AnthropicはClaude 5世代モデルにおいて、Claude Code自身のシステムプロンプトの**80%以上**を削減しました。過去のモデル用に書かれた `CLAUDE.md` や `SOUL.md` の古い指示ルールは、毎セッションで無駄なトークンを消費しています。 `claude-tuneup` はAnthropicの公式ガイドラインに基づいてコンテキストを最適化します。
 
 > **最初に `/doctor` を実行してください。** Claude Codeに標準搭載されており、インストール環境のチェックにおいて最高かつ無料です。その上で残った課題に `claude-tuneup` を実行します。本スキルは `/doctor` を自動実行し、そのレポートに基づいて動作する補完ツールです。
 

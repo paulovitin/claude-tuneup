@@ -14,16 +14,18 @@ AI-агент проводит аудит инструкций, загружае
 [![Установить](https://img.shields.io/badge/npx_skills_add-paulovitin%2Fclaude--tuneup-000?style=for-the-badge&logo=anthropic&logoColor=white)](https://github.com/paulovitin/claude-tuneup)
 [![Лицензия: MIT](https://img.shields.io/badge/Лицензия-MIT-22c55e?style=for-the-badge)](#-лицензия)
 [![Claude Code](https://img.shields.io/badge/Claude_Code-skill-d97757?style=for-the-badge)](https://claude.com/claude-code)
-[![EN](https://img.shields.io/badge/README-English-000?style=for-the-badge)](README.md)
-[![pt-BR](https://img.shields.io/badge/README-pt--BR-30A3DC?style=for-the-badge)](README.pt-BR.md)
-[![ja](https://img.shields.io/badge/README-日本語-red?style=for-the-badge)](README.ja.md)
-[![zh-CN](https://img.shields.io/badge/README-简体中文-red?style=for-the-badge)](README.zh-CN.md)
-[![es](https://img.shields.io/badge/README-Español-yellow?style=for-the-badge)](README.es.md)
-[![fr](https://img.shields.io/badge/README-Français-blue?style=for-the-badge)](README.fr.md)
+
+<br/>
+
+🌐 **Выберите язык:**<br/>
+🇺🇸 [English](README.md) • 🇧🇷 [Português](README.pt-BR.md) • 🇯🇵 [日本語](README.ja.md) • 🇨🇳 [简体中文](README.zh-CN.md) • 🇪🇸 [Español](README.es.md) • 🇫🇷 [Français](README.fr.md) • 🇷🇺 **Русский**
 
 </div>
 
 ---
+
+> [!IMPORTANT]
+> **Знаете ли вы?** Anthropic сократила системный промпт самого Claude Code более чем на **80%** для моделей поколения Claude 5. Устаревшие правила в `CLAUDE.md` или `SOUL.md` расходуют токены в каждой сессии. `claude-tuneup` проводит аудит контекста по официальным гайдам Anthropic!
 
 > **Сначала запустите `/doctor`.** Он поставляется в составе Claude Code, делает инвентаризацию вашей установки лучше чего-либо другого и абсолютно бесплатен. Затем запустите `claude-tuneup` для оставшихся задач. Этот навык запускает `/doctor` за вас и работает на основе его отчета.
 
