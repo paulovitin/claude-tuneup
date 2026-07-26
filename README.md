@@ -17,6 +17,9 @@ Every change is a button. Every button has a *"What does this do?"*. Every run c
 [![pt-BR](https://img.shields.io/badge/README-pt--BR-30A3DC?style=for-the-badge)](README.pt-BR.md)
 [![ja](https://img.shields.io/badge/README-日本語-red?style=for-the-badge)](README.ja.md)
 [![zh-CN](https://img.shields.io/badge/README-简体中文-red?style=for-the-badge)](README.zh-CN.md)
+[![es](https://img.shields.io/badge/README-Español-yellow?style=for-the-badge)](README.es.md)
+[![fr](https://img.shields.io/badge/README-Français-blue?style=for-the-badge)](README.fr.md)
+[![ru](https://img.shields.io/badge/README-Русский-purple?style=for-the-badge)](README.ru.md)
 
 </div>
 
