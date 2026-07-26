@@ -15,6 +15,8 @@ Every change is a button. Every button has a *"What does this do?"*. Every run c
 [![License: MIT](https://img.shields.io/badge/License-MIT-22c55e?style=for-the-badge)](#-license)
 [![Claude Code](https://img.shields.io/badge/Claude_Code-skill-d97757?style=for-the-badge)](https://claude.com/claude-code)
 [![pt-BR](https://img.shields.io/badge/README-pt--BR-30A3DC?style=for-the-badge)](README.pt-BR.md)
+[![ja](https://img.shields.io/badge/README-日本語-red?style=for-the-badge)](README.ja.md)
+[![zh-CN](https://img.shields.io/badge/README-简体中文-red?style=for-the-badge)](README.zh-CN.md)
 
 </div>
 
