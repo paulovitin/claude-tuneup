@@ -14,16 +14,18 @@ AI Agent 会审查**每次会话**加载的指令规则 — 并同步清理磁�
 [![安装](https://img.shields.io/badge/npx_skills_add-paulovitin%2Fclaude--tuneup-000?style=for-the-badge&logo=anthropic&logoColor=white)](https://github.com/paulovitin/claude-tuneup)
 [![许可证: MIT](https://img.shields.io/badge/许可证-MIT-22c55e?style=for-the-badge)](#-许可证)
 [![Claude Code](https://img.shields.io/badge/Claude_Code-skill-d97757?style=for-the-badge)](https://claude.com/claude-code)
-[![EN](https://img.shields.io/badge/README-English-000?style=for-the-badge)](README.md)
-[![pt-BR](https://img.shields.io/badge/README-pt--BR-30A3DC?style=for-the-badge)](README.pt-BR.md)
-[![ja](https://img.shields.io/badge/README-日本語-red?style=for-the-badge)](README.ja.md)
-[![es](https://img.shields.io/badge/README-Español-yellow?style=for-the-badge)](README.es.md)
-[![fr](https://img.shields.io/badge/README-Français-blue?style=for-the-badge)](README.fr.md)
-[![ru](https://img.shields.io/badge/README-Русский-purple?style=for-the-badge)](README.ru.md)
+
+<br/>
+
+🌐 **选择语言:**<br/>
+🇺🇸 [English](README.md) • 🇧🇷 [Português](README.pt-BR.md) • 🇯🇵 [日本語](README.ja.md) • 🇨🇳 **简体中文** • 🇪🇸 [Español](README.es.md) • 🇫🇷 [Français](README.fr.md) • 🇷🇺 [Русский](README.ru.md)
 
 </div>
 
 ---
+
+> [!IMPORTANT]
+> **你知道吗？** Anthropic 为 Claude 5 代模型删除了 Claude Code 自身系统提示中超过 **80%** 的冗余指令。在 `CLAUDE.md` 或 `SOUL.md` 中为旧模型编写的陈旧规则会在每次会话中浪费推理 Token。`claude-tuneup` 依据 Anthropic 官方最新指引对你的上下文进行审计与优化！
 
 > **请先运行 `/doctor`。** 它是 Claude Code 内置的免费诊断工具，对安装环境的检查比任何第三方工具都更全面。之后再使用 `claude-tuneup` 处理剩余的问题。本 Skill 会自动运行 `/doctor` 并基于其报告展开工作 — 它是补充，而非替代。
 

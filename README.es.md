@@ -14,16 +14,18 @@ Cada cambio es un botón. Cada botón tiene un *"¿Qué hace esto?"*. Cada ejecu
 [![Instalar](https://img.shields.io/badge/npx_skills_add-paulovitin%2Fclaude--tuneup-000?style=for-the-badge&logo=anthropic&logoColor=white)](https://github.com/paulovitin/claude-tuneup)
 [![Licencia: MIT](https://img.shields.io/badge/Licencia-MIT-22c55e?style=for-the-badge)](#-licencia)
 [![Claude Code](https://img.shields.io/badge/Claude_Code-skill-d97757?style=for-the-badge)](https://claude.com/claude-code)
-[![EN](https://img.shields.io/badge/README-English-000?style=for-the-badge)](README.md)
-[![pt-BR](https://img.shields.io/badge/README-pt--BR-30A3DC?style=for-the-badge)](README.pt-BR.md)
-[![ja](https://img.shields.io/badge/README-日本語-red?style=for-the-badge)](README.ja.md)
-[![zh-CN](https://img.shields.io/badge/README-简体中文-red?style=for-the-badge)](README.zh-CN.md)
-[![fr](https://img.shields.io/badge/README-Français-blue?style=for-the-badge)](README.fr.md)
-[![ru](https://img.shields.io/badge/README-Русский-purple?style=for-the-badge)](README.ru.md)
+
+<br/>
+
+🌐 **Selecciona tu idioma:**<br/>
+🇺🇸 [English](README.md) • 🇧🇷 [Português](README.pt-BR.md) • 🇯🇵 [日本語](README.ja.md) • 🇨🇳 [简体中文](README.zh-CN.md) • 🇪🇸 **Español** • 🇫🇷 [Français](README.fr.md) • 🇷🇺 [Русский](README.ru.md)
 
 </div>
 
 ---
+
+> [!IMPORTANT]
+> **¿Sabías que...?** Anthropic eliminó más del **80%** del system prompt del propio Claude Code para los modelos de la generación Claude 5. Las reglas antiguas escritas en `CLAUDE.md` o `SOUL.md` malgastan tokens de razonamiento en cada sesión. ¡`claude-tuneup` audita tu contexto según las pautas oficiales de Anthropic!
 
 > **Ejecuta `/doctor` primero.** Viene incluido con Claude Code, toma inventario de tu instalación mejor que cualquier otra cosa y es gratuito. Luego ejecuta `claude-tuneup` en lo que quede. Esta skill ejecuta `/doctor` por ti y trabaja sobre su informe — es un complemento, no un reemplazo.
 
