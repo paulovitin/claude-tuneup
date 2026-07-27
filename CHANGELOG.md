@@ -11,8 +11,12 @@ take a **major** bump.
 
 ## [Unreleased]
 
+## [5.1.0] - 2026-07-27
+
 The v5 pivot said the tool audits *what loads into every session*. It read three of those
 surfaces. This closes the gap, and makes a second run cheap enough to be worth doing.
+It also makes the undo honest: a full restore now reverses what a run *added*, and a
+symptom noticed three days later can be traced back to the run that caused it.
 
 ### Added
 
@@ -313,7 +317,8 @@ Almost nothing about a run behaves the way 0.4.x behaved.
   undoable runs via restore points; session-history protection; `--dry-run`;
   EN + pt-BR READMEs.
 
-[Unreleased]: https://github.com/paulovitin/claude-tuneup/compare/v5.0.0...HEAD
+[Unreleased]: https://github.com/paulovitin/claude-tuneup/compare/v5.1.0...HEAD
+[5.1.0]: https://github.com/paulovitin/claude-tuneup/compare/v5.0.0...v5.1.0
 [5.0.0]: https://github.com/paulovitin/claude-tuneup/compare/v0.4.1...v5.0.0
 [0.4.1]: https://github.com/paulovitin/claude-tuneup/compare/v0.3.0...v0.4.1
 [0.3.0]: https://github.com/paulovitin/claude-tuneup/compare/v0.2.0...v0.3.0
