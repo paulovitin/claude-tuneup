@@ -49,6 +49,37 @@ test('checkCmdPath ignores file:// scheme but checks bare paths', () => {
   assert.deepEqual(checkCmdPath(spec).missing, ['/also/missing']);
 });
 
+// Drive-letter paths are asserted on every OS, not just Windows: this was blind there for
+// as long as it existed precisely because nothing but Windows ever fed it one.
+test('checkCmdPath reads a Windows drive path, not just a POSIX one', () => {
+  assert.deepEqual(
+    checkCmdPath({ command: 'C:\\nope\\statusline.ps1' }).missing,
+    ['C:\\nope\\statusline.ps1'],
+  );
+  assert.deepEqual(
+    checkCmdPath({ command: 'C:/nope/statusline.ps1' }).missing,
+    ['C:/nope/statusline.ps1'],
+    'a drive path written with forward slashes is one path, not a "/nope/..." fragment',
+  );
+});
+
+// The false positive this guards against is a Windows one — "C:\Program Files\..." is the
+// normal place for an interpreter — but a space in a path is not platform-specific, so the
+// test builds one anywhere.
+test('checkCmdPath does not call an existing script missing because its path has a space', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tuneup cmd-'));
+  const script = path.join(dir, 'hook.sh');
+  fs.writeFileSync(script, '#!/bin/sh\n');
+  assert.deepEqual(checkCmdPath({ command: `${script} --flag` }).missing, [],
+    'stopping at the first space would report a script that is right there');
+  fs.rmSync(dir, { recursive: true, force: true });
+  // Once it really is gone it must be reported. Where exactly a spaced path ends is
+  // unknowable, so this asserts that the directory is named, not the exact split.
+  const gone = checkCmdPath({ command: `${script} --flag` }).missing;
+  assert.ok(gone.length > 0, 'a deleted script is still a finding');
+  assert.ok(gone.some((p) => script.startsWith(p)), 'the finding points at the missing script');
+});
+
 test('hookReferenced matches a whole filename token, not a substring', () => {
   const cmds = JSON.stringify({ PreToolUse: [{ hooks: [{ command: '$DIR/hooks/aa.sh' }] }] });
   assert.equal(hookReferenced(cmds, 'aa.sh'), true);
@@ -250,17 +281,31 @@ test('permissionPathPrefix only fires on path-shaped specs and stops at the firs
   assert.equal(permissionPathPrefix('//srv/data/**/*.md'), '/srv/data');
   assert.equal(permissionPathPrefix('/srv/data/notes.md'), '/srv/data/notes.md');
   assert.equal(permissionPathPrefix('/**'), null, 'a root-level glob names no checkable directory');
+  // Windows shapes, asserted on every OS — this is pure string work, so there is no
+  // reason for the coverage to depend on which runner happens to execute it.
+  assert.equal(permissionPathPrefix('C:\\srv\\data\\**\\*.md'), 'C:\\srv\\data');
+  assert.equal(permissionPathPrefix('C:/srv/data/**'), 'C:/srv/data',
+    'the separator the rule used is the separator reported back');
+  assert.equal(permissionPathPrefix('C:\\**'), null, 'a bare drive root is not checkable');
+  assert.equal(permissionPathPrefix('domain:example.com'), null,
+    'a multi-letter scheme is not a drive letter');
 });
 
 test('settings section finds dead paths, duplicate and contradictory rules, and which file wins', () => {
   const home = makeMemoryHome();
   const claude = path.join(home, '.claude');
   const gone = path.join(home, 'deleted-project');
+  // A directory that really is there, as the control. It has to be one the test creates:
+  // /tmp was standing in for "obviously exists" and does not exist on Windows, so the
+  // control itself was reported as a dead path there. The // absolute form it also
+  // covered is pure string work, exercised in the permissionPathPrefix test above.
+  const alive = path.join(home, 'live-project');
+  fs.mkdirSync(alive, { recursive: true });
 
   fs.writeFileSync(path.join(claude, 'settings.json'), JSON.stringify({
     model: 'some-pinned-model',
     permissions: {
-      allow: ['Bash(npm run test:*)', 'Bash(npm run test:*)', `Read(${gone}/**)`, 'Edit(//tmp/**)'],
+      allow: ['Bash(npm run test:*)', 'Bash(npm run test:*)', `Read(${gone}/**)`, `Edit(${alive}/**)`],
       deny: ['Bash(npm run test:*)'],
     },
     statusLine: { type: 'command', command: path.join(home, 'no-such-statusline.sh') },
@@ -280,7 +325,7 @@ test('settings section finds dead paths, duplicate and contradictory rules, and 
   assert.deepEqual(s.permissions.duplicatedAcrossFiles, ['allow|Bash(npm run test:*)']);
   assert.deepEqual(s.permissions.allowDenyConflicts, ['Bash(npm run test:*)']);
 
-  // Only the rule naming a directory that is really gone gets flagged; /tmp exists.
+  // Only the rule naming a directory that is really gone gets flagged.
   assert.deepEqual(s.permissions.pathMissing.map(r => r.pathPrefix), [gone]);
 
   assert.deepEqual(s.brokenPaths.map(b => b.where).sort(), ['hooks.Stop', 'statusLine.command']);

@@ -152,8 +152,28 @@ export function checkCmdPath(spec) {
   // Strip URLs first (https://, npm:, file://...) — a "//host/path" inside a URL is not a
   // filesystem path and must not be reported as a missing local file.
   const blob = [spec?.command, ...(spec?.args || [])].join(' ').replace(/\b[a-z][a-z0-9+.-]*:\/\/\S+/gi, ' ');
-  const paths = (blob.match(/\/[^\s"']+/g) || []).filter(p => p.includes('/'));
-  const missing = paths.filter(p => !exists(p));
+  // POSIX "/x" and Windows "C:\x" both count. Matching only the former made this blind on
+  // Windows: it reported nothing at all rather than something wrong, so the gap stayed
+  // invisible until a test built a real temp path there.
+  const start = /[A-Za-z]:[\\/]|\//g;
+  const missing = [];
+  let m;
+  while ((m = start.exec(blob))) {
+    const tail = blob.slice(m.index).split(/["']/)[0];
+    // The blob holds arguments too, and an absolute path may itself contain spaces
+    // ("C:\Program Files\..."), so where the path ends is genuinely ambiguous. Prefer the
+    // longest run that resolves; only when nothing resolves is the first token reported.
+    // Guessing the short form instead would call a working statusLine broken.
+    const tokens = tail.split(' ');
+    let consumed = tokens[0];
+    let found = false;
+    for (let n = tokens.length; n >= 1; n--) {
+      const candidate = tokens.slice(0, n).join(' ');
+      if (exists(candidate)) { consumed = candidate; found = true; break; }
+    }
+    if (!found) missing.push(consumed);
+    start.lastIndex = m.index + consumed.length;
+  }
   return { missing };
 }
 
@@ -323,6 +343,8 @@ const MERGED_SETTINGS_KEYS = new Set(['permissions', 'hooks', 'env', 'mcpServers
 
 const SECRET_KEY_NAME = /key|token|secret|passw|credential/i;
 const GLOB_CHARS = /[*?[\]{}]/;
+// One letter, colon, separator — "domain:example.com" is not a drive.
+const WIN_ABS = /^[A-Za-z]:[\\/]/;
 
 // Longest glob-free directory prefix of a path-shaped permission specifier, with ~
 // and Claude Code's leading "//" (absolute) form resolved. Returns null when the rule
@@ -332,8 +354,14 @@ export function permissionPathPrefix(spec) {
   let p = spec.trim();
   if (p.startsWith('//')) p = p.slice(1);
   else if (/^~[\\/]/.test(p)) p = path.join(HOME, p.slice(2));
-  else if (!p.startsWith('/')) return null;
-  const segments = p.split('/');
+  // A drive letter is as absolute as a leading slash; rejecting it left every path rule
+  // in a Windows settings file unchecked.
+  else if (!p.startsWith('/') && !WIN_ABS.test(p)) return null;
+  // Rejoin with the separator the rule actually used rather than the platform's: the
+  // reported prefix is shown to the dev and matched against their own file, and
+  // normalizing would rewrite a POSIX rule into backslashes when read on Windows.
+  const sep = p.includes('\\') ? '\\' : '/';
+  const segments = p.split(/[\\/]/);
   const solid = [];
   for (const segment of segments) {
     if (GLOB_CHARS.test(segment)) break;
@@ -341,8 +369,10 @@ export function permissionPathPrefix(spec) {
   }
   // Drop the last solid segment only when the rule continued into a glob: the prefix
   // we can honestly check is the deepest directory the rule definitely names.
-  const prefix = solid.join('/');
-  return prefix && prefix !== '/' ? prefix : null;
+  const prefix = solid.join(sep);
+  if (!prefix || prefix === '/') return null;
+  // A bare drive root names no checkable directory, same as "/**".
+  return /^[A-Za-z]:$/.test(prefix) ? null : prefix;
 }
 
 // "Tool(specifier)" or a bare "Tool". Anything else is returned verbatim as unparsed
