@@ -41,6 +41,7 @@ Two layers, deliberately split:
 ### Invariants — do not break these
 
 - **No Python, no deps, no Node-version-specific APIs.** Scripts must run identically on all three OSes via the bundled node. Windows matters: use `linkDir()` (junction fallback) not raw symlinks, and never assume `python3` exists.
+- **Anything that reads a path out of a string must accept `C:\...`, not just `/...`.** A POSIX-only matcher doesn't fail loudly on Windows — it matches nothing and reports no findings, so the scan looks clean while checking nothing. Split on `[\\/]`, and rejoin with the separator the input used: a reported path is shown to the dev and matched against their own file, so normalizing rewrites a POSIX rule into backslashes. Assert Windows shapes in tests that run on **every** OS — string logic needs no Windows runner, and waiting for one is how this stayed hidden.
 - **Path resolution via `fileURLToPath`**, never `new URL().pathname` — install paths contain spaces/unicode (e.g. `~/Library/Application Support`).
 - **Backups live OUTSIDE the skill** (`~/.claude-tuneup/backups/<run-id>/`, override `$CLAUDE_TUNEUP_STATE`) so a skill update/reinstall can't wipe the undo history. `restore.mjs` still reads the legacy in-skill `.backups/` too.
 - **Move, never `rm`, anything irreplaceable** (`lib.move()` — rename with verified cross-device copy fallback). Hard `rm` is only OK for self-regenerating caches (venvs, statsig). `SESSION_HISTORY` dirs (transcripts, todos, sessions) are never bulk-deleted.
