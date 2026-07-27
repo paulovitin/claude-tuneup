@@ -254,3 +254,303 @@ test('AGENTS.md is snapshotted and restored like the other configs', () => {
   assert.equal(fs.readFileSync(agents, 'utf8'), '# shared truth v1\n');
   fs.rmSync(home, { recursive: true, force: true });
 });
+
+// --- v5.1: resident surfaces, settings semantics, cross-run ledger ---
+
+test('a full install scan never routes the credential store into the ask-the-dev flow', () => {
+  const home = makeHome();
+  const claude = path.join(home, '.claude');
+  fs.writeFileSync(path.join(claude, '.credentials.json'), JSON.stringify({ token: 'oauth-secret-value' }));
+  fs.writeFileSync(path.join(claude, 'keybindings.json'), JSON.stringify({ bindings: [] }));
+
+  // Every section at once, exactly as a `--dry-run` would gather it.
+  const all = run(home, 'scan.mjs');
+  assert.equal(all.includes('oauth-secret-value'), false, 'a credential value must never enter the scan output');
+
+  const { rootFiles } = JSON.parse(all);
+  const credentials = rootFiles.find((f) => f.name === '.credentials.json');
+  assert.equal(credentials.class, 'secret-never-touch');
+  assert.equal(rootFiles.find((f) => f.name === 'keybindings.json').class, 'config-keep');
+  assert.equal(rootFiles.some((f) => f.class === 'unknown'), false,
+    'nothing in a stock install should reach STEP 7 as unidentifiable');
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('surfaces and settings agree about which output style is actually loaded', () => {
+  const home = makeHome();
+  const claude = path.join(home, '.claude');
+  fs.mkdirSync(path.join(claude, 'output-styles'), { recursive: true });
+  fs.writeFileSync(path.join(claude, 'output-styles', 'terse.md'),
+    '---\nname: terse\ndescription: short\n---\nBe brief.\n');
+  fs.mkdirSync(path.join(claude, 'commands', 'git'), { recursive: true });
+  fs.writeFileSync(path.join(claude, 'commands', 'git', 'commit.md'),
+    '---\ndescription: commit the staged diff\n---\nbody\n');
+  fs.writeFileSync(path.join(claude, 'settings.json'), JSON.stringify({ outputStyle: 'terse' }));
+
+  const surfaces = runJSON(home, 'audit-instructions.mjs', '--surfaces');
+  const { settings } = runJSON(home, 'scan.mjs', '--section', 'settings');
+
+  assert.equal(surfaces.activeOutputStyle, 'terse');
+  assert.equal(settings.outputStyle.matchesCustom, true);
+  assert.deepEqual(settings.outputStyle.customAvailable, ['terse']);
+  assert.ok(surfaces.surfaces.some((s) => s.kind === 'command' && s.name === 'git:commit'));
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('settings scan flags a statusLine pointing at a script that was deleted', () => {
+  const home = makeHome();
+  const claude = path.join(home, '.claude');
+  const script = path.join(claude, 'statusline.sh');
+  fs.writeFileSync(path.join(claude, 'settings.json'), JSON.stringify({
+    statusLine: { type: 'command', command: script },
+  }));
+
+  fs.writeFileSync(script, '#!/bin/sh\n');
+  let { settings } = runJSON(home, 'scan.mjs', '--section', 'settings');
+  assert.deepEqual(settings.brokenPaths, [], 'a script that exists is not a finding');
+
+  fs.rmSync(script);
+  ({ settings } = runJSON(home, 'scan.mjs', '--section', 'settings'));
+  assert.deepEqual(settings.brokenPaths, [
+    { file: 'settings.json', where: 'statusLine.command', missing: script },
+  ]);
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('the ledger survives a restore, because undo must not erase what the dev decided', () => {
+  const home = makeHome();
+  const state = path.join(home, '.claude-tuneup');
+  const ledgerRun = (...args) => JSON.parse(execFileSync(process.execPath,
+    [path.join(SCRIPTS, 'ledger.mjs'), ...args],
+    { encoding: 'utf8', env: { ...process.env, CLAUDE_TUNEUP_HOME: home, CLAUDE_TUNEUP_STATE: state } }));
+
+  const { key } = ledgerRun('key', 'rule', path.join(home, '.claude', 'CLAUDE.md'), 'keep my absolute');
+  ledgerRun('decide', key, 'keep', '--run', 'r1');
+
+  // A real restore point, then a real restore over it.
+  const rp = execFileSync(process.execPath, [path.join(SCRIPTS, 'backup.mjs'), 'create'],
+    { encoding: 'utf8', env: { ...process.env, CLAUDE_TUNEUP_HOME: home, CLAUDE_TUNEUP_STATE: state } }).trim();
+  fs.writeFileSync(path.join(home, '.claude', 'CLAUDE.md'), '# edited\n');
+  execFileSync(process.execPath, [path.join(SCRIPTS, 'restore.mjs'), 'apply', rp],
+    { encoding: 'utf8', env: { ...process.env, CLAUDE_TUNEUP_HOME: home, CLAUDE_TUNEUP_STATE: state } });
+
+  assert.equal(fs.readFileSync(path.join(home, '.claude', 'CLAUDE.md'), 'utf8'), '# v1\n');
+  assert.deepEqual(ledgerRun('check', key).declined, [key],
+    'the ledger lives outside the backups and must outlive a restore');
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+// --- v5.1: tracing a symptom back to the run that caused it ---
+
+test('search traces a symptom to the run that removed it, ranked, without reading token files', () => {
+  const home = makeHome();
+  const claude = path.join(home, '.claude');
+  const skill = path.join(claude, 'skills', 'deploy');
+  fs.mkdirSync(skill, { recursive: true });
+  fs.writeFileSync(path.join(skill, 'SKILL.md'), 'deploy steps');
+  fs.writeFileSync(path.join(home, '.claude.json'),
+    JSON.stringify({ projects: {}, mcpServers: {}, oauthAccount: 'token-shaped-secret' }));
+  fs.writeFileSync(path.join(claude, 'CLAUDE.md'), '- always squash before merging\n');
+
+  const rp = run(home, 'backup.mjs', 'create').trim();
+  run(home, 'backup.mjs', 'stash', rp, skill);
+
+  const found = runJSON(home, 'restore.mjs', 'search', 'deploy');
+  assert.equal(found.points.length, 1);
+  const hit = found.points[0];
+  assert.equal(hit.path, rp);
+  assert.equal(hit.items[0].original, skill);
+  assert.equal(hit.items[0].recoverable, true, 'the stashed copy is still there to put back');
+
+  // The snapshotted memory files are searchable, so "the rule about X is gone" is findable.
+  const byRule = runJSON(home, 'restore.mjs', 'search', 'squash');
+  assert.equal(byRule.points[0].memory[0].file, 'CLAUDE.md');
+  assert.match(byRule.points[0].memory[0].text, /squash before merging/);
+
+  // .claude.json is snapshotted but never searched — a hit would print its contents.
+  const secrets = runJSON(home, 'restore.mjs', 'search', 'oauthAccount', 'token-shaped-secret');
+  assert.deepEqual(secrets.points, []);
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('search ranks by how many terms hit and reports when nothing matches', () => {
+  const home = makeHome();
+  const claude = path.join(home, '.claude');
+  const strong = path.join(claude, 'skills', 'deploy-helper');
+  const weak = path.join(claude, 'skills', 'notes');
+  for (const dir of [strong, weak]) {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'SKILL.md'), 'x');
+  }
+  const older = run(home, 'backup.mjs', 'create').trim();
+  run(home, 'backup.mjs', 'stash', older, weak);
+  const newer = run(home, 'backup.mjs', 'create').trim();
+  run(home, 'backup.mjs', 'stash', newer, strong);
+
+  const found = runJSON(home, 'restore.mjs', 'search', 'deploy', 'helper', 'notes');
+  assert.equal(found.points[0].path, newer, 'two terms beat one');
+  assert.equal(found.points[0].score, 2);
+  assert.equal(found.points[1].score, 1);
+
+  assert.deepEqual(runJSON(home, 'restore.mjs', 'search', 'nothingmatchesthis').points, [],
+    'an empty result must be reportable, not an error');
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('apply --only puts back one item and leaves the rest of the run applied', () => {
+  const home = makeHome();
+  const claude = path.join(home, '.claude');
+  const wanted = path.join(claude, 'skills', 'deploy');
+  const other = path.join(claude, 'skills', 'obsolete');
+  for (const dir of [wanted, other]) {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'SKILL.md'), 'x');
+  }
+  const rp = run(home, 'backup.mjs', 'create').trim();
+  run(home, 'backup.mjs', 'stash', rp, wanted);
+  run(home, 'backup.mjs', 'stash', rp, other);
+  fs.writeFileSync(path.join(claude, 'CLAUDE.md'), '# edited by the run\n');
+
+  const result = runJSON(home, 'restore.mjs', 'apply', rp, '--only', wanted);
+  assert.equal(result.ok, true);
+  assert.equal(result.scope, 'single-item');
+  assert.ok(fs.existsSync(path.join(wanted, 'SKILL.md')), 'the one item the dev named comes back');
+  assert.equal(fs.existsSync(other), false, 'the removal they were happy with stays removed');
+  assert.equal(fs.readFileSync(path.join(claude, 'CLAUDE.md'), 'utf8'), '# edited by the run\n',
+    'a surgical restore must not revert config edits');
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('apply --only refuses an unknown path instead of restoring the wrong thing', () => {
+  const home = makeHome();
+  const rp = run(home, 'backup.mjs', 'create').trim();
+  assert.throws(
+    () => run(home, 'restore.mjs', 'apply', rp, '--only', path.join(home, '.claude', 'skills', 'never-removed')),
+    /Command failed/,
+    'no fuzzy matching — restoring the wrong path is worse than asking again',
+  );
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('apply --only with no path says what is missing instead of throwing a stack trace', () => {
+  const home = makeHome();
+  const rp = run(home, 'backup.mjs', 'create').trim();
+  try {
+    run(home, 'restore.mjs', 'apply', rp, '--only');
+    assert.fail('expected a non-zero exit');
+  } catch (err) {
+    const stderr = String(err.stderr || '');
+    assert.match(stderr, /--only needs a path/, 'the dev is told what to supply');
+    assert.doesNotMatch(stderr, /ERR_INVALID_ARG_TYPE/,
+      'a recovery flow must not answer with an internal stack trace');
+  }
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('apply --only parks a collision beside the path instead of clobbering a newer file', () => {
+  const home = makeHome();
+  const claude = path.join(home, '.claude');
+  const skill = path.join(claude, 'skills', 'deploy');
+  fs.mkdirSync(skill, { recursive: true });
+  fs.writeFileSync(path.join(skill, 'SKILL.md'), 'original');
+  const rp = run(home, 'backup.mjs', 'create').trim();
+  run(home, 'backup.mjs', 'stash', rp, skill);
+
+  // The dev rebuilt it by hand before asking for the restore.
+  fs.mkdirSync(skill, { recursive: true });
+  fs.writeFileSync(path.join(skill, 'SKILL.md'), 'rewritten by hand');
+
+  const result = runJSON(home, 'restore.mjs', 'apply', rp, '--only', skill);
+  assert.ok(result.collision, 'the newer file must survive');
+  assert.equal(fs.readFileSync(path.join(skill, 'SKILL.md'), 'utf8'), 'rewritten by hand');
+  assert.equal(fs.readFileSync(path.join(result.restored, 'SKILL.md'), 'utf8'), 'original');
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+// --- v5.1: a run adds as well as subtracts, and undo has to reverse both ---
+
+test('full restore undoes what the run ADDED, not just what it removed', () => {
+  const home = makeHome();
+  const claude = path.join(home, '.claude');
+  const removed = path.join(claude, 'skills', 'obsolete');
+  fs.mkdirSync(removed, { recursive: true });
+  fs.writeFileSync(path.join(removed, 'SKILL.md'), 'old');
+
+  const rp = run(home, 'backup.mjs', 'create').trim();
+  run(home, 'backup.mjs', 'stash', rp, removed);
+
+  // What STEP 17 does: writes a new skill, then records it.
+  const added = path.join(claude, 'skills', 'deploy-dance');
+  fs.mkdirSync(added, { recursive: true });
+  fs.writeFileSync(path.join(added, 'SKILL.md'), 'new skill this run wrote');
+  run(home, 'backup.mjs', 'created', rp, added);
+
+  const result = runJSON(home, 'restore.mjs', 'apply', rp);
+  assert.ok(fs.existsSync(path.join(removed, 'SKILL.md')), 'the removal is reversed');
+  assert.equal(fs.existsSync(added), false, '"undo everything" must also undo the additions');
+  assert.equal(result.undoneCreations.length, 1);
+  assert.equal(result.undoneCreations[0].created, added);
+
+  // Moved, never deleted: the dev may have edited the skill this tool wrote for them.
+  assert.equal(fs.readFileSync(path.join(result.undoneCreations[0].movedTo, 'SKILL.md'), 'utf8'),
+    'new skill this run wrote');
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('search separates what a run added from what it removed', () => {
+  const home = makeHome();
+  const claude = path.join(home, '.claude');
+  const added = path.join(claude, 'skills', 'deploy-dance');
+  fs.mkdirSync(added, { recursive: true });
+  fs.writeFileSync(path.join(added, 'SKILL.md'), 'x');
+
+  const rp = run(home, 'backup.mjs', 'create').trim();
+  run(home, 'backup.mjs', 'created', rp, added);
+
+  const found = runJSON(home, 'restore.mjs', 'search', 'deploy');
+  assert.deepEqual(found.points[0].items, [], 'nothing was removed');
+  assert.equal(found.points[0].created[0].path, added);
+  assert.equal(found.points[0].created[0].stillPresent, true);
+  // The two need opposite fixes, so the direction can never be inferred from the path.
+  assert.match(found.note, /undo takes them away/);
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('apply --only takes away a created item instead of trying to restore it', () => {
+  const home = makeHome();
+  const claude = path.join(home, '.claude');
+  const added = path.join(claude, 'skills', 'shadowing');
+  fs.mkdirSync(added, { recursive: true });
+  fs.writeFileSync(path.join(added, 'SKILL.md'), 'steals routing from an existing skill');
+
+  const rp = run(home, 'backup.mjs', 'create').trim();
+  run(home, 'backup.mjs', 'created', rp, added);
+  fs.writeFileSync(path.join(claude, 'CLAUDE.md'), '# edited by the run\n');
+
+  const result = runJSON(home, 'restore.mjs', 'apply', rp, '--only', added);
+  assert.equal(result.scope, 'single-item-creation');
+  assert.equal(fs.existsSync(added), false);
+  assert.ok(fs.existsSync(path.join(result.movedTo, 'SKILL.md')), 'recoverable, not deleted');
+  assert.equal(fs.readFileSync(path.join(claude, 'CLAUDE.md'), 'utf8'), '# edited by the run\n',
+    'the rest of the run stays applied');
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('restore list reports both directions so a dev can see what a run actually did', () => {
+  const home = makeHome();
+  const claude = path.join(home, '.claude');
+  const gone = path.join(claude, 'skills', 'old');
+  const born = path.join(claude, 'skills', 'new');
+  for (const dir of [gone, born]) {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'SKILL.md'), 'x');
+  }
+  const rp = run(home, 'backup.mjs', 'create').trim();
+  run(home, 'backup.mjs', 'stash', rp, gone);
+  run(home, 'backup.mjs', 'created', rp, born);
+
+  const entry = runJSON(home, 'restore.mjs', 'list').find((p) => p.path === rp);
+  assert.equal(entry.removedCount, 1);
+  assert.equal(entry.createdCount, 1);
+  fs.rmSync(home, { recursive: true, force: true });
+});

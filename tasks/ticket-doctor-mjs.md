@@ -1,3 +1,6 @@
+> **Status: shipped in 5.0.0.** Kept as the implementation record. In 5.1.0 `insights.mjs` — the
+> script this one was modelled on — was refactored to the same exported shape and finally tested.
+
 # Ticket: `doctor.mjs` — run Claude Code's built-in `/doctor` headlessly, report-only
 
 ## Goal

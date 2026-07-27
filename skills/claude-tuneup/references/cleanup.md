@@ -1,11 +1,11 @@
-# Cleanup playbook — steps 1–8
+# Cleanup playbook — steps 1–8 and 19
 
 > Loaded on demand by SKILL.md. The UX contract ("How to ask the dev"), the restore-point
 > policy (STEP 0.5) and the Rules in SKILL.md apply to **every** step below.
 
 Run each step's scan with its own section — e.g. `node "$SKILL_DIR/scripts/scan.mjs" --section skills` — instead of one giant scan, so only the data the current step needs enters the context. Inline shell (`ls`, `du`) is the fallback when the script can't run.
 
-**Every JSON edit in this playbook is followed by `validate-json.mjs`** (SKILL.md Rule 4). Steps 3, 4, 5 and 8 all edit config; the rule is stated once here and applies to all of them.
+**Every JSON edit in this playbook is followed by `validate-json.mjs`** (SKILL.md Rule 4). Steps 3, 4, 5, 8 and 19 all edit config; the rule is stated once here and applies to all of them.
 
 **Use the `/doctor` report from STEP 0.6 where it applies.** It carries real usage counts and its own
 keep/remove verdict per component — evidence this skill's own scan cannot produce. Steps 1, 2 and 4
@@ -152,11 +152,12 @@ node "$SKILL_DIR/scripts/scan.mjs" --section rootFiles
 ```
 
 Each file comes pre-classed; verify before acting:
+- **`secret-never-touch`** (`.credentials.json`) → **skip entirely, and never open it.** It holds live tokens. Don't list it, don't `head` it, don't ask about it — there is no decision here to offer.
 - **`os-cruft-skip`** (`.DS_Store`, `Thumbs.db`) → **skip entirely.** Don't list it, don't ask — the OS recreates it instantly, so deleting wastes the dev's time. Ignore it everywhere it appears, in every step.
 - **`stale-backup`** (`*.bak`, `*.old`, `*.backup*`, dated copies) → offer to delete, keeping the newest if it's a rolling backup.
 - **`regenerable`** (`*-cache.json`, `*result*.json`, lockfile-style artifacts — including this skill's own insights cache) → offer to delete; they come back.
 - **`session-history`** (`history.jsonl`) → the STEP 6 hard rules apply.
-- **`config-keep`** (`CLAUDE.md`, `SOUL.md`, `settings*.json`) → keep; `CLAUDE.md`/`SOUL.md` are handled in steps 9–10.
+- **`config-keep`** (`CLAUDE.md`, `SOUL.md`, `settings*.json`, `keybindings.json`) → keep; `CLAUDE.md`/`SOUL.md` are handled in steps 9–10, and `settings*.json` in step 19.
 - **`unknown`** → don't assume from the name. Inspect (`file`, `head`) and route through "What does this do?": explain, then ask.
 
 ---
@@ -167,3 +168,39 @@ Steps 4–5 already covered dead `mcpServers` and gone `projects`; this is the f
 
 - Re-run the relevant sections if edits happened: `node "$SKILL_DIR/scripts/scan.mjs" --section mcps,projects` — anything still orphaned? Remove with confirmation.
 - Validate: `node "$SKILL_DIR/scripts/validate-json.mjs" ~/.claude.json ~/.claude/settings.json` — a broken global config takes the whole install down, so never end this step on an unvalidated edit.
+
+---
+
+## STEP 19: `settings.json` (semantics, not syntax)
+
+Step 8 proves the file still parses. This one asks whether what's in it still does anything. Dead
+permission rules and a `statusLine` pointing at a deleted script are silent: nothing errors, the
+setting just stops meaning what the dev thought it meant.
+
+```bash
+node "$SKILL_DIR/scripts/scan.mjs" --section settings
+```
+
+Reads `~/.claude/settings.json` and `settings.local.json`. Enterprise and project settings also
+apply and are **not** read — say so when reporting, the picture is partial by design.
+
+| Finding | What it means | Ask |
+|---|---|---|
+| `permissions.pathMissing` | a rule names a directory that no longer exists | remove the rule? these pile up for years after a repo is deleted |
+| `permissions.duplicatedInSameList` | the exact rule twice in one list | drop the copy |
+| `permissions.duplicatedAcrossFiles` | the same rule in both files | keep one; the lists concatenate, so it is pure noise |
+| `permissions.allowDenyConflicts` | the same rule allowed **and** denied | **deny wins.** Show the dev which one is dead — they usually meant the allow |
+| `brokenPaths` | `statusLine` or a hook command that isn't there | fix the path or drop the setting |
+| `conflicts` | a scalar key set in both files, different values | report only: `settings.local.json` wins. This is often deliberate — never "fix" it unprompted |
+| `envSecretHints` | an env var **name** that looks like a credential | same alert as STEP 4's `secretHints`. The scan never reads the value; neither do you |
+| `outputStyle.matchesCustom: false` | the configured style matches no file in `output-styles/` | almost certainly a built-in. Confirm before calling it broken |
+| `files[].unknownKeys` | a top-level key we don't recognize | **report, never propose removing.** The key list is hand-maintained; a newer Claude Code is far likelier than junk |
+| `files[].parses: false` | the file is malformed | this is urgent — the settings aren't loading at all. Route to step 8's validation |
+
+Two things this step does **not** do: it never touches `permissions.defaultMode` or any other
+posture setting on its own initiative (that is the dev's policy, not clutter), and it never resolves
+a `conflicts` entry for them. Both are surfaced and left alone.
+
+`conflicts` deliberately excludes `permissions`, `hooks`, `env` and `mcpServers` — Claude Code
+**combines** those across files rather than overriding, so a difference there is not a conflict.
+Reporting one would tell the dev their base settings had stopped applying when both are still live.

@@ -5,7 +5,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { checkCmdPath, hookReferenced, classifyMcp, ageSpan } from './scan.mjs';
+import {
+  checkCmdPath, hookReferenced, classifyMcp, ageSpan,
+  parsePermissionRule, permissionPathPrefix,
+} from './scan.mjs';
 
 const SCRIPTS = path.dirname(fileURLToPath(import.meta.url));
 
@@ -16,15 +19,19 @@ function makeMemoryHome() {
   return home;
 }
 
-function scanMemory(home, extraEnv = {}) {
+function runSection(home, section, extraEnv = {}) {
   const env = { ...process.env, ...extraEnv, CLAUDE_TUNEUP_HOME: home };
   delete env.CLAUDE_CODE_DISABLE_AUTO_MEMORY;
   if (Object.hasOwn(extraEnv, 'CLAUDE_CODE_DISABLE_AUTO_MEMORY')) {
     env.CLAUDE_CODE_DISABLE_AUTO_MEMORY = extraEnv.CLAUDE_CODE_DISABLE_AUTO_MEMORY;
   }
-  return JSON.parse(execFileSync(process.execPath, [path.join(SCRIPTS, 'scan.mjs'), '--section', 'memory'], {
+  return JSON.parse(execFileSync(process.execPath, [path.join(SCRIPTS, 'scan.mjs'), '--section', section], {
     encoding: 'utf8', env,
-  })).memory;
+  }))[section];
+}
+
+function scanMemory(home, extraEnv = {}) {
+  return runSection(home, 'memory', extraEnv);
 }
 
 test('checkCmdPath does not flag URL args as missing local paths', () => {
@@ -40,6 +47,37 @@ test('checkCmdPath still flags a genuinely missing absolute path', () => {
 test('checkCmdPath ignores file:// scheme but checks bare paths', () => {
   const spec = { command: 'node', args: ['file:///opt/x', '/also/missing'] };
   assert.deepEqual(checkCmdPath(spec).missing, ['/also/missing']);
+});
+
+// Drive-letter paths are asserted on every OS, not just Windows: this was blind there for
+// as long as it existed precisely because nothing but Windows ever fed it one.
+test('checkCmdPath reads a Windows drive path, not just a POSIX one', () => {
+  assert.deepEqual(
+    checkCmdPath({ command: 'C:\\nope\\statusline.ps1' }).missing,
+    ['C:\\nope\\statusline.ps1'],
+  );
+  assert.deepEqual(
+    checkCmdPath({ command: 'C:/nope/statusline.ps1' }).missing,
+    ['C:/nope/statusline.ps1'],
+    'a drive path written with forward slashes is one path, not a "/nope/..." fragment',
+  );
+});
+
+// The false positive this guards against is a Windows one — "C:\Program Files\..." is the
+// normal place for an interpreter — but a space in a path is not platform-specific, so the
+// test builds one anywhere.
+test('checkCmdPath does not call an existing script missing because its path has a space', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tuneup cmd-'));
+  const script = path.join(dir, 'hook.sh');
+  fs.writeFileSync(script, '#!/bin/sh\n');
+  assert.deepEqual(checkCmdPath({ command: `${script} --flag` }).missing, [],
+    'stopping at the first space would report a script that is right there');
+  fs.rmSync(dir, { recursive: true, force: true });
+  // Once it really is gone it must be reported. Where exactly a spaced path ends is
+  // unknowable, so this asserts that the directory is named, not the exact split.
+  const gone = checkCmdPath({ command: `${script} --flag` }).missing;
+  assert.ok(gone.length > 0, 'a deleted script is still a finding');
+  assert.ok(gone.some((p) => script.startsWith(p)), 'the finding points at the missing script');
 });
 
 test('hookReferenced matches a whole filename token, not a substring', () => {
@@ -203,5 +241,132 @@ test('memoryDir is null when no projects/ entry matches the cwd', () => {
   assert.equal(m.memoryDir, null);
   assert.equal(m.memoryScope, 'per-project');
   assert.equal(m.teamMounts, false);
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+// --- rootFiles classification (v5.1) ---
+
+test('rootFiles never routes the credential store or keybindings through the unknown flow', () => {
+  const home = makeMemoryHome();
+  const claude = path.join(home, '.claude');
+  for (const name of ['.credentials.json', 'keybindings.json', 'settings.local.json', 'mystery.dat']) {
+    fs.writeFileSync(path.join(claude, name), '{}');
+  }
+  const byName = Object.fromEntries(runSection(home, 'rootFiles').map(f => [f.name, f.class]));
+
+  // The bug this fixes: both fell through to 'unknown', and the STEP 7 playbook
+  // inspects + asks about anything unknown — so every run prompted the dev about
+  // their own OAuth tokens.
+  assert.equal(byName['.credentials.json'], 'secret-never-touch');
+  assert.equal(byName['keybindings.json'], 'config-keep');
+  assert.equal(byName['settings.local.json'], 'config-keep');
+  assert.equal(byName['mystery.dat'], 'unknown', 'genuinely unknown files still route to inspect-and-ask');
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+// --- settings.json semantics (v5.1) ---
+
+test('parsePermissionRule reads Tool(spec) and bare Tool, and refuses to guess anything else', () => {
+  assert.deepEqual(parsePermissionRule('Bash(npm run test:*)'),
+    { rule: 'Bash(npm run test:*)', parsed: true, tool: 'Bash', spec: 'npm run test:*' });
+  assert.deepEqual(parsePermissionRule('WebSearch'),
+    { rule: 'WebSearch', parsed: true, tool: 'WebSearch', spec: '' });
+  assert.equal(parsePermissionRule('mcp__server__tool(x').parsed, false);
+});
+
+test('permissionPathPrefix only fires on path-shaped specs and stops at the first glob', () => {
+  assert.equal(permissionPathPrefix('npm run build'), null, 'a Bash spec is not a path');
+  assert.equal(permissionPathPrefix('domain:example.com'), null, 'a WebFetch spec is not a path');
+  assert.equal(permissionPathPrefix(''), null);
+  assert.equal(permissionPathPrefix('//srv/data/**/*.md'), '/srv/data');
+  assert.equal(permissionPathPrefix('/srv/data/notes.md'), '/srv/data/notes.md');
+  assert.equal(permissionPathPrefix('/**'), null, 'a root-level glob names no checkable directory');
+  // Windows shapes, asserted on every OS — this is pure string work, so there is no
+  // reason for the coverage to depend on which runner happens to execute it.
+  assert.equal(permissionPathPrefix('C:\\srv\\data\\**\\*.md'), 'C:\\srv\\data');
+  assert.equal(permissionPathPrefix('C:/srv/data/**'), 'C:/srv/data',
+    'the separator the rule used is the separator reported back');
+  assert.equal(permissionPathPrefix('C:\\**'), null, 'a bare drive root is not checkable');
+  assert.equal(permissionPathPrefix('domain:example.com'), null,
+    'a multi-letter scheme is not a drive letter');
+});
+
+test('settings section finds dead paths, duplicate and contradictory rules, and which file wins', () => {
+  const home = makeMemoryHome();
+  const claude = path.join(home, '.claude');
+  const gone = path.join(home, 'deleted-project');
+  // A directory that really is there, as the control. It has to be one the test creates:
+  // /tmp was standing in for "obviously exists" and does not exist on Windows, so the
+  // control itself was reported as a dead path there. The // absolute form it also
+  // covered is pure string work, exercised in the permissionPathPrefix test above.
+  const alive = path.join(home, 'live-project');
+  fs.mkdirSync(alive, { recursive: true });
+
+  fs.writeFileSync(path.join(claude, 'settings.json'), JSON.stringify({
+    model: 'some-pinned-model',
+    permissions: {
+      allow: ['Bash(npm run test:*)', 'Bash(npm run test:*)', `Read(${gone}/**)`, `Edit(${alive}/**)`],
+      deny: ['Bash(npm run test:*)'],
+    },
+    statusLine: { type: 'command', command: path.join(home, 'no-such-statusline.sh') },
+    hooks: { Stop: [{ hooks: [{ type: 'command', command: path.join(home, 'no-such-hook.sh') }] }] },
+    env: { MY_API_KEY: 'sk-abcdefghijkl', DEBUG: '1' },
+    cleanupPeriodDays: 30,
+    someKeyFromANewerRelease: true,
+  }));
+  fs.writeFileSync(path.join(claude, 'settings.local.json'), JSON.stringify({
+    cleanupPeriodDays: 90,
+    permissions: { allow: ['Bash(npm run test:*)'] },
+  }));
+
+  const s = runSection(home, 'settings');
+
+  assert.deepEqual(s.permissions.duplicatedInSameList, ['settings.json|allow|Bash(npm run test:*)']);
+  assert.deepEqual(s.permissions.duplicatedAcrossFiles, ['allow|Bash(npm run test:*)']);
+  assert.deepEqual(s.permissions.allowDenyConflicts, ['Bash(npm run test:*)']);
+
+  // Only the rule naming a directory that is really gone gets flagged.
+  assert.deepEqual(s.permissions.pathMissing.map(r => r.pathPrefix), [gone]);
+
+  assert.deepEqual(s.brokenPaths.map(b => b.where).sort(), ['hooks.Stop', 'statusLine.command']);
+  // Only scalar keys override. `permissions` differs between the two files here and must
+  // NOT be called a conflict — Claude Code concatenates the lists, so both still apply.
+  assert.deepEqual(s.conflicts, [{ key: 'cleanupPeriodDays', effective: 'settings.local.json' }]);
+  assert.equal(s.model, 'some-pinned-model');
+
+  // Secret hygiene: the env var NAME is reported, the value never leaves the file.
+  assert.deepEqual(s.envSecretHints, [{ file: 'settings.json', key: 'MY_API_KEY' }]);
+  assert.equal(JSON.stringify(s).includes('sk-abcdefghijkl'), false);
+
+  // An unrecognized key is surfaced but never proposed for removal.
+  const base = s.files.find(f => f.file === 'settings.json');
+  assert.deepEqual(base.unknownKeys, ['someKeyFromANewerRelease']);
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('settings section reports a malformed file instead of treating it as empty', () => {
+  const home = makeMemoryHome();
+  fs.writeFileSync(path.join(home, '.claude', 'settings.json'), '{ "permissions": ');
+  const s = runSection(home, 'settings');
+  const base = s.files.find(f => f.file === 'settings.json');
+  assert.deepEqual(base, { file: 'settings.json', exists: true, parses: false });
+  assert.deepEqual(s.permissions.rules, [], 'an unparseable file contributes no rules');
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('settings section separates a custom output style from a built-in name', () => {
+  const home = makeMemoryHome();
+  const claude = path.join(home, '.claude');
+  fs.mkdirSync(path.join(claude, 'output-styles'), { recursive: true });
+  fs.writeFileSync(path.join(claude, 'output-styles', 'terse.md'), '---\nname: terse\ndescription: short\n---\n');
+
+  fs.writeFileSync(path.join(claude, 'settings.json'), JSON.stringify({ outputStyle: 'terse' }));
+  let s = runSection(home, 'settings');
+  assert.equal(s.outputStyle.matchesCustom, true);
+  assert.deepEqual(s.outputStyle.customAvailable, ['terse']);
+
+  fs.writeFileSync(path.join(claude, 'settings.json'), JSON.stringify({ outputStyle: 'Explanatory' }));
+  s = runSection(home, 'settings');
+  assert.equal(s.outputStyle.matchesCustom, false, 'a built-in is not on disk — reported, not condemned');
   fs.rmSync(home, { recursive: true, force: true });
 });

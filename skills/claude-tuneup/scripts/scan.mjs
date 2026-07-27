@@ -6,7 +6,8 @@
 //   node scan.mjs --section hooks      -> one section
 //   node scan.mjs --section mcps,usage -> several sections (comma-separated)
 //
-// Sections: skills, plugins, hooks, mcps, projects, stateDirs, rootFiles, usage
+// Sections: skills, plugins, hooks, mcps, projects, stateDirs, rootFiles, settings,
+//           usage, memory
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,6 +16,9 @@ import { HOME, CLAUDE_DIR, AGENTS_DIR, CLAUDE_JSON, readJSON, exists, dirSize, i
 const ls = (p) => { try { return fs.readdirSync(p); } catch { return []; } };
 const lstat = (p) => { try { return fs.lstatSync(p); } catch { return null; } };
 const OS_CRUFT = new Set(['.DS_Store', 'Thumbs.db']);
+// Files that hold live credentials. Never listed, never read, never offered as a
+// decision — the only safe handling is to act as if they aren't there.
+const SECRET_FILES = new Set(['.credentials.json']);
 // Irreplaceable conversation history / session state. Not covered by the restore
 // point (only configs are snapshotted), so deleting any of these is permanent.
 // NOTE: statsig is NOT here — it's a feature-flag/telemetry cache that regenerates.
@@ -148,8 +152,28 @@ export function checkCmdPath(spec) {
   // Strip URLs first (https://, npm:, file://...) — a "//host/path" inside a URL is not a
   // filesystem path and must not be reported as a missing local file.
   const blob = [spec?.command, ...(spec?.args || [])].join(' ').replace(/\b[a-z][a-z0-9+.-]*:\/\/\S+/gi, ' ');
-  const paths = (blob.match(/\/[^\s"']+/g) || []).filter(p => p.includes('/'));
-  const missing = paths.filter(p => !exists(p));
+  // POSIX "/x" and Windows "C:\x" both count. Matching only the former made this blind on
+  // Windows: it reported nothing at all rather than something wrong, so the gap stayed
+  // invisible until a test built a real temp path there.
+  const start = /[A-Za-z]:[\\/]|\//g;
+  const missing = [];
+  let m;
+  while ((m = start.exec(blob))) {
+    const tail = blob.slice(m.index).split(/["']/)[0];
+    // The blob holds arguments too, and an absolute path may itself contain spaces
+    // ("C:\Program Files\..."), so where the path ends is genuinely ambiguous. Prefer the
+    // longest run that resolves; only when nothing resolves is the first token reported.
+    // Guessing the short form instead would call a working statusLine broken.
+    const tokens = tail.split(' ');
+    let consumed = tokens[0];
+    let found = false;
+    for (let n = tokens.length; n >= 1; n--) {
+      const candidate = tokens.slice(0, n).join(' ');
+      if (exists(candidate)) { consumed = candidate; found = true; break; }
+    }
+    if (!found) missing.push(consumed);
+    start.lastIndex = m.index + consumed.length;
+  }
   return { missing };
 }
 
@@ -207,11 +231,15 @@ function scanRootFiles() {
     return st && !st.isDirectory();
   }).map(name => {
     let cls = 'unknown';
-    if (OS_CRUFT.has(name)) cls = 'os-cruft-skip';
+    // SECRET_FILES first. .credentials.json holds live OAuth tokens; falling through to
+    // 'unknown' made every run inspect it and ask the dev about their own credential
+    // store. The class means: never read, never offered as a decision.
+    if (SECRET_FILES.has(name)) cls = 'secret-never-touch';
+    else if (OS_CRUFT.has(name)) cls = 'os-cruft-skip';
     else if (/^history\.jsonl$/.test(name)) cls = 'session-history';
     else if (/\.(bak|old)$|\.backup/.test(name)) cls = 'stale-backup';
     else if (/-cache\.json$|result.*\.json$/.test(name)) cls = 'regenerable';
-    else if (/^(CLAUDE|SOUL|AGENTS)\.md$|^settings.*\.json$/.test(name)) cls = 'config-keep';
+    else if (/^(CLAUDE|SOUL|AGENTS)\.md$|^settings.*\.json$|^keybindings\.json$/.test(name)) cls = 'config-keep';
     return { name, class: cls };
   });
 }
@@ -296,7 +324,196 @@ function locateProjectMemoryDir(cwd) {
 
 // User-level memory files (~/.claude). Project-level AGENTS.md follows the same
 // pattern but lives in repos — outside a global tune-up's scope.
-function scanMemory() {
+// --- settings.json semantics (v5.1) -----------------------------------------
+//
+// Top-level keys we recognize, verified against Claude Code 2.1.220. This list is
+// maintained BY HAND and drifts between releases, so an unrecognized key is reported
+// and never proposed for removal — it is far more likely to be newer than us than to
+// be junk. Same honest limit as references/harness-invariants.md.
+const KNOWN_SETTINGS_KEYS = new Set([
+  'apiKeyHelper', 'autoMemoryDirectory', 'autoMemoryEnabled', 'awsAuthRefresh',
+  'awsCredentialExport', 'cleanupPeriodDays', 'disableAllHooks', 'enableAllProjectMcpServers',
+  'enabledMcpjsonServers', 'disabledMcpjsonServers', 'env', 'forceLoginMethod',
+  'forceLoginOrgUUID', 'hooks', 'includeCoAuthoredBy', 'mcpServers', 'model',
+  'otelHeadersHelper', 'outputStyle', 'permissions', 'sandbox', 'statusLine',
+]);
+
+// Keys Claude Code combines across settings files rather than overriding.
+const MERGED_SETTINGS_KEYS = new Set(['permissions', 'hooks', 'env', 'mcpServers']);
+
+const SECRET_KEY_NAME = /key|token|secret|passw|credential/i;
+const GLOB_CHARS = /[*?[\]{}]/;
+// One letter, colon, separator — "domain:example.com" is not a drive.
+const WIN_ABS = /^[A-Za-z]:[\\/]/;
+
+// Longest glob-free directory prefix of a path-shaped permission specifier, with ~
+// and Claude Code's leading "//" (absolute) form resolved. Returns null when the rule
+// isn't path-shaped at all — a Bash or WebFetch rule must never be path-checked.
+export function permissionPathPrefix(spec) {
+  if (typeof spec !== 'string' || !spec.trim()) return null;
+  let p = spec.trim();
+  if (p.startsWith('//')) p = p.slice(1);
+  else if (/^~[\\/]/.test(p)) p = path.join(HOME, p.slice(2));
+  // A drive letter is as absolute as a leading slash; rejecting it left every path rule
+  // in a Windows settings file unchecked.
+  else if (!p.startsWith('/') && !WIN_ABS.test(p)) return null;
+  // Rejoin with the separator the rule actually used rather than the platform's: the
+  // reported prefix is shown to the dev and matched against their own file, and
+  // normalizing would rewrite a POSIX rule into backslashes when read on Windows.
+  const sep = p.includes('\\') ? '\\' : '/';
+  const segments = p.split(/[\\/]/);
+  const solid = [];
+  for (const segment of segments) {
+    if (GLOB_CHARS.test(segment)) break;
+    solid.push(segment);
+  }
+  // Drop the last solid segment only when the rule continued into a glob: the prefix
+  // we can honestly check is the deepest directory the rule definitely names.
+  const prefix = solid.join(sep);
+  if (!prefix || prefix === '/') return null;
+  // A bare drive root names no checkable directory, same as "/**".
+  return /^[A-Za-z]:$/.test(prefix) ? null : prefix;
+}
+
+// "Tool(specifier)" or a bare "Tool". Anything else is returned verbatim as unparsed
+// rather than guessed at.
+export function parsePermissionRule(rule) {
+  if (typeof rule !== 'string') return { rule: String(rule), parsed: false };
+  const m = rule.match(/^([A-Za-z_][A-Za-z0-9_-]*)\((.*)\)$/s);
+  if (m) return { rule, parsed: true, tool: m[1], spec: m[2] };
+  if (/^[A-Za-z_][A-Za-z0-9_-]*$/.test(rule.trim())) return { rule, parsed: true, tool: rule.trim(), spec: '' };
+  return { rule, parsed: false };
+}
+
+// Every `command` string anywhere inside a hooks config, with its event name.
+function hookCommands(hooks) {
+  const found = [];
+  for (const [event, matchers] of Object.entries(hooks || {})) {
+    for (const matcher of Array.isArray(matchers) ? matchers : []) {
+      for (const hook of matcher?.hooks || []) {
+        if (typeof hook?.command === 'string') found.push({ event, command: hook.command });
+      }
+    }
+  }
+  return found;
+}
+
+function scanSettings() {
+  const names = ['settings.json', 'settings.local.json'];
+  const loaded = names.map((name) => {
+    const file = path.join(CLAUDE_DIR, name);
+    if (!exists(file)) return { file: name, exists: false };
+    const data = readJSON(file);
+    if (data === null || typeof data !== 'object' || Array.isArray(data)) {
+      return { file: name, exists: true, parses: false };
+    }
+    return {
+      file: name, exists: true, parses: true, data,
+      keys: Object.keys(data),
+      unknownKeys: Object.keys(data).filter((k) => !KNOWN_SETTINGS_KEYS.has(k)),
+    };
+  });
+  const live = loaded.filter((f) => f.parses);
+
+  // --- permissions
+  const rules = [];
+  for (const f of live) {
+    for (const list of ['allow', 'deny', 'ask']) {
+      for (const raw of f.data.permissions?.[list] || []) {
+        const parsed = parsePermissionRule(raw);
+        const prefix = parsed.parsed ? permissionPathPrefix(parsed.spec) : null;
+        rules.push({
+          file: f.file, list, ...parsed,
+          ...(prefix ? { pathPrefix: prefix, pathMissing: !exists(prefix) } : {}),
+        });
+      }
+    }
+  }
+  const tally = (keyOf) => {
+    const seen = new Map();
+    for (const r of rules) {
+      const k = keyOf(r);
+      seen.set(k, (seen.get(k) || 0) + 1);
+    }
+    return seen;
+  };
+  const withinList = tally((r) => `${r.file}|${r.list}|${r.rule}`);
+  const acrossFiles = tally((r) => `${r.list}|${r.rule}`);
+  const byRule = new Map();
+  for (const r of rules) {
+    if (!byRule.has(r.rule)) byRule.set(r.rule, new Set());
+    byRule.get(r.rule).add(r.list);
+  }
+
+  // --- effective-value conflicts. settings.local.json wins on a shared *scalar* key.
+  // MERGED_SETTINGS_KEYS are combined by Claude Code instead of overridden (permission
+  // lists concatenate; hooks/env/mcpServers merge by entry), so a differing value there
+  // is not a conflict at all — calling it one would tell the dev their base settings
+  // stopped applying when both are still in force. Those get the duplicate/contradiction
+  // checks above instead.
+  const base = loaded.find((f) => f.file === 'settings.json');
+  const local = loaded.find((f) => f.file === 'settings.local.json');
+  const conflicts = base?.parses && local?.parses
+    ? Object.keys(base.data)
+      .filter((k) => !MERGED_SETTINGS_KEYS.has(k)
+        && Object.hasOwn(local.data, k)
+        && JSON.stringify(base.data[k]) !== JSON.stringify(local.data[k]))
+      .map((key) => ({ key, effective: 'settings.local.json' }))
+    : [];
+
+  // --- paths that must resolve
+  const brokenPaths = [];
+  for (const f of live) {
+    const status = f.data.statusLine;
+    if (typeof status?.command === 'string') {
+      for (const missing of checkCmdPath({ command: status.command }).missing) {
+        brokenPaths.push({ file: f.file, where: 'statusLine.command', missing });
+      }
+    }
+    for (const { event, command } of hookCommands(f.data.hooks)) {
+      for (const missing of checkCmdPath({ command }).missing) {
+        brokenPaths.push({ file: f.file, where: `hooks.${event}`, missing });
+      }
+    }
+  }
+
+  // --- env: NAMES only. A settings file is not a secret store, but if the dev used it
+  // as one, the value must not travel through this scan on its way to being reported.
+  const envSecretHints = live.flatMap((f) => Object.entries(f.data.env || {})
+    .filter(([k, v]) => SECRET_KEY_NAME.test(k) && typeof v === 'string' && v.trim().length >= 8)
+    .map(([key]) => ({ file: f.file, key })));
+
+  // --- outputStyle must name something. Built-ins exist and are not on disk, so a
+  // miss is "not one of yours", never "broken".
+  const stylesDir = path.join(CLAUDE_DIR, 'output-styles');
+  const customStyles = ls(stylesDir).filter((n) => n.endsWith('.md')).map((n) => n.replace(/\.md$/, ''));
+  const configuredStyle = live.map((f) => f.data.outputStyle).filter((v) => typeof v === 'string').pop() || null;
+  const outputStyle = configuredStyle === null ? null : {
+    configured: configuredStyle,
+    matchesCustom: customStyles.includes(configuredStyle),
+    customAvailable: customStyles,
+    note: 'A configured style that matches no file in output-styles/ is probably a built-in. Confirm before treating it as a dead reference.',
+  };
+
+  return {
+    files: loaded.map(({ data, ...rest }) => rest),
+    permissions: {
+      rules,
+      duplicatedInSameList: [...withinList].filter(([, n]) => n > 1).map(([k]) => k),
+      duplicatedAcrossFiles: [...acrossFiles].filter(([, n]) => n > 1).map(([k]) => k),
+      allowDenyConflicts: [...byRule].filter(([, lists]) => lists.has('allow') && lists.has('deny')).map(([rule]) => rule),
+      pathMissing: rules.filter((r) => r.pathMissing),
+    },
+    conflicts,
+    brokenPaths,
+    envSecretHints,
+    outputStyle,
+    model: live.map((f) => f.data.model).filter((v) => typeof v === 'string').pop() || null,
+    note: 'Only user-level settings were read; enterprise and project settings also apply and are out of scope. Unknown top-level keys are reported, never proposed for removal — the key list is hand-maintained and a newer Claude Code may have added it.',
+  };
+}
+
+export function scanMemory() {
   const claudePath = path.join(CLAUDE_DIR, 'CLAUDE.md');
   const agentsPath = path.join(CLAUDE_DIR, 'AGENTS.md');
   const soulPath = path.join(CLAUDE_DIR, 'SOUL.md');
@@ -340,7 +557,17 @@ function scanUsage() {
     .map(([name, v]) => ({ name, count: v?.usageCount || 0, lastUsed: iso(v?.lastUsedAt) }))
     .sort((a, b) => b.count - a.count)
     .slice(0, n);
-  return { skills: top(d.skillUsage), tools: top(d.toolUsage) };
+  // agentUsage/pluginUsage may be absent on older installs — `top` treats undefined as
+  // {} and yields [], which reads as "no data", NOT as "everything is unused". Step 18
+  // has to tell those apart, so report which counters actually existed.
+  const present = ['skillUsage', 'toolUsage', 'agentUsage', 'pluginUsage'].filter(k => d[k] && typeof d[k] === 'object');
+  return {
+    countersPresent: present,
+    skills: top(d.skillUsage),
+    tools: top(d.toolUsage),
+    agents: top(d.agentUsage),
+    plugins: top(d.pluginUsage),
+  };
 }
 
 function main() {
@@ -353,6 +580,7 @@ function main() {
     projects: scanProjects,
     stateDirs: () => scanStateDirs(handled),
     rootFiles: scanRootFiles,
+    settings: scanSettings,
     usage: scanUsage,
     memory: scanMemory,
   };

@@ -1,3 +1,6 @@
+> **Status: shipped in 5.0.0.** Kept as the implementation record. `--surfaces` was extended in
+> 5.1.0 to cover slash commands, output styles and plugin-bundled components — see `CHANGELOG.md`.
+
 # Ticket: `audit-instructions.mjs` + auto-memory fields in `scan.mjs --section memory`
 
 Two deliverables. The skill playbooks already call both — `references/instructions.md` and

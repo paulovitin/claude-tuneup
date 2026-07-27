@@ -7,7 +7,7 @@
 
 # claude-tuneup modernization plan — instruction auditor
 
-Status: **plan only, no code changes.** Target: **5.0.0**.
+Status: **implemented in 5.0.0** (see the note above). Kept as the design record, not a to-do list.
 
 ## Execution order, decided
 

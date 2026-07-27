@@ -11,24 +11,21 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { CLAUDE_DIR } from './lib.mjs';
+import { fileURLToPath } from 'node:url';
+import { CLAUDE_DIR, out } from './lib.mjs';
 
-const CACHE_FILE = path.join(CLAUDE_DIR, '.claude-tuneup-insights-cache.json');
-const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
-const NO_CACHE = process.argv.includes('--no-cache');
+export const CACHE_FILE = path.join(CLAUDE_DIR, '.claude-tuneup-insights-cache.json');
+export const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+export const RECURSION_GUARD = 'CLAUDE_TUNEUP_INSIGHTS_RUNNING';
 
-if (process.argv.includes('--help')) {
-  process.stdout.write('Usage: node insights.mjs [--no-cache] [--help]\n');
-  process.exit(0);
+export function buildArgv() {
+  return ['-p', '/insights'];
 }
 
 function loadCache() {
   try {
-    const raw = fs.readFileSync(CACHE_FILE, 'utf8');
-    const cached = JSON.parse(raw);
-    if (Date.now() - cached.ts < CACHE_TTL_MS) {
-      return cached.data;
-    }
+    const cached = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8'));
+    if (cached && Date.now() - cached.ts < CACHE_TTL_MS) return cached.data;
   } catch {}
   return null;
 }
@@ -40,34 +37,57 @@ function saveCache(data) {
   } catch {}
 }
 
-const RECURSION_GUARD = 'CLAUDE_TUNEUP_INSIGHTS_RUNNING';
+export function section(html, anchorRe) {
+  const re = new RegExp(anchorRe + '(.*?)(<h2|<h3|$)', 's');
+  const m = html.match(re);
+  if (!m) return '';
+  return m[1].replace(/<[^>]+>/g, ' ')
+    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&#39;/g, "'").replace(/&quot;/g, '"')
+    .replace(/\s+/g, ' ').trim();
+}
 
-function generate() {
-  // Try cache first — insights costs a model call every time
-  if (!NO_CACHE) {
-    const cached = loadCache();
-    if (cached) return cached;
+const WANT = [
+  ['suggestedClaudeMd', 'Suggested CLAUDE\\.md Additions'],
+  ['whatYouWorkOn', 'What You Work On'],
+  ['howYouUse', 'How You Use Claude Code'],
+  ['friction', 'Where Things Go Wrong'],
+];
+
+export function parseSections(html) {
+  const sections = {};
+  for (const [key, anchor] of WANT) {
+    const s = section(html, anchor);
+    if (s) sections[key] = s.slice(0, 2000);
   }
+  return sections;
+}
 
+// Spawn `claude -p "/insights"`, which prints a line containing file://….html and opens
+// no browser. Returns the report path, or a reason.
+// Exported for offline tests. The injectable exec function keeps tests from ever spawning Claude.
+export function locateReport({ exec = execFileSync } = {}) {
   // Recursion guard: this spawns `claude` from inside a Claude skill. If we're already
   // inside such a spawn, refuse — never let insights call itself and fork model calls.
   if (process.env[RECURSION_GUARD]) {
     return { ok: false, reason: 'recursion guard: refusing to spawn `claude -p` from inside an insights run' };
   }
 
-  // `claude -p "/insights"` prints a line containing file://....html and opens no browser.
   let stdout = '';
   const start = Date.now();
   try {
-    stdout = execFileSync('claude', ['-p', '/insights'], {
+    stdout = exec('claude', buildArgv(), {
       encoding: 'utf8',
       timeout: 120000,        // 2-minute max
       killSignal: 'SIGTERM',
       env: { ...process.env, [RECURSION_GUARD]: '1' },
     });
   } catch (e) {
-    stdout = (e.stdout || '').toString();
+    stdout = (e?.stdout || '').toString();
     const elapsed = Date.now() - start;
+    if (e && e.code === 'ENOENT') {
+      return { ok: false, reason: 'claude is not available on PATH' };
+    }
     // If it timed out or crashed without producing output, return a clear reason
     if (!stdout) {
       return { ok: false, reason: `insights timed out after ${elapsed / 1000}s (no output). Try again later.` };
@@ -81,50 +101,39 @@ function generate() {
   return { ok: true, report: reportPath };
 }
 
-function section(html, anchorRe) {
-  const re = new RegExp(anchorRe + '(.*?)(<h2|<h3|$)', 's');
-  const m = html.match(re);
-  if (!m) return '';
-  return m[1].replace(/<[^>]+>/g, ' ')
-    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-    .replace(/&#39;/g, "'").replace(/&quot;/g, '"')
-    .replace(/\s+/g, ' ').trim();
+export function generate({ noCache = false, exec = execFileSync } = {}) {
+  // Cache is checked before the recursion guard on purpose: a fresh cached result is
+  // still useful inside a nested run, and returning it spawns nothing.
+  if (!noCache) {
+    const cached = loadCache();
+    if (cached) return cached;
+  }
+
+  const located = locateReport({ exec });
+  if (!located.ok) return located;
+
+  let html = '';
+  try { html = fs.readFileSync(located.report, 'utf8'); }
+  catch { return { ok: false, reason: `report at ${located.report} could not be read` }; }
+
+  const sections = parseSections(html);
+  const result = { ok: true, report: located.report, sections };
+  // Empty sections usually mean the /insights HTML layout changed under us. Don't cache
+  // the miss (a retry after a fix should re-parse), and point the agent at the raw file.
+  if (Object.keys(sections).length === 0) {
+    result.note = 'No known sections matched — the /insights HTML format may have changed. Read the report file directly and extract "Suggested CLAUDE.md Additions" by hand.';
+  } else {
+    saveCache(result);
+  }
+  return result;
 }
 
-// Load or generate
-const raw = generate();
-
-// If it came from cache with sections already parsed, return it directly
-if (raw.sections) {
-  process.stdout.write(JSON.stringify(raw, null, 2) + '\n');
-  process.exit(0);
+function usage() {
+  process.stdout.write('Usage: node insights.mjs [--no-cache] [--help]\n');
 }
 
-if (!raw.ok) {
-  process.stdout.write(JSON.stringify(raw, null, 2) + '\n');
-  process.exit(0);
+const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isMain) {
+  if (process.argv.includes('--help')) usage();
+  else out(generate({ noCache: process.argv.includes('--no-cache') }));
 }
-
-// Parse HTML sections
-const html = fs.readFileSync(raw.report, 'utf8');
-const want = [
-  ['suggestedClaudeMd', 'Suggested CLAUDE\\.md Additions'],
-  ['whatYouWorkOn', 'What You Work On'],
-  ['howYouUse', 'How You Use Claude Code'],
-  ['friction', 'Where Things Go Wrong'],
-];
-const sections = {};
-for (const [key, anchor] of want) {
-  const s = section(html, anchor);
-  if (s) sections[key] = s.slice(0, 2000);
-}
-
-const result = { ok: true, report: raw.report, sections };
-// Empty sections usually mean the /insights HTML layout changed under us. Don't cache
-// the miss (a retry after a fix should re-parse), and point the agent at the raw file.
-if (Object.keys(sections).length === 0) {
-  result.note = 'No known sections matched — the /insights HTML format may have changed. Read the report file directly and extract "Suggested CLAUDE.md Additions" by hand.';
-} else {
-  saveCache(result);
-}
-process.stdout.write(JSON.stringify(result, null, 2) + '\n');

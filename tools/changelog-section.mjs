@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Print the CHANGELOG.md section for a given version. Used by the release workflow
 // to turn a pushed vX.Y.Z tag into release notes. No deps.
-//   node .github/scripts/changelog-section.mjs 1.2.3   -> prints the "## [1.2.3] ..." body
+//   node tools/changelog-section.mjs 1.2.3   -> prints the "## [1.2.3] ..." body
 import fs from 'node:fs';
 
 const version = (process.argv[2] || '').replace(/^v/, '');

@@ -11,6 +11,106 @@ take a **major** bump.
 
 ## [Unreleased]
 
+The v5 pivot said the tool audits *what loads into every session*. It read three of those
+surfaces. This closes the gap, and makes a second run cheap enough to be worth doing.
+
+### Added
+
+- **Slash commands, output styles and plugin-bundled components are now audited.**
+  `audit-instructions.mjs --surfaces` walks `~/.claude/commands/**` (namespaced by
+  directory, so `commands/git/commit.md` is `git:commit`), `~/.claude/output-styles/`,
+  and any skills/agents/commands a plugin ships. Steps 14 and 15 cover them; plugin
+  components are report-only, because the action there is uninstalling the plugin.
+- **Residency is labelled instead of assumed.** Each surface carries
+  `residency: confirmed | inferred | none`, and totals are split
+  (`approxResidentTokens` vs `approxResidentTokensInferred`) so a verified cost is
+  never blended with a guess. Only the *active* output style is resident, and it costs
+  its body, not its description — an unselected one is clutter, not spend.
+- **STEP 18 — surfaces that are installed but inert.** Unselected output styles,
+  never-used agents, commands duplicating a skill, unreadable frontmatter. It refuses to
+  read a missing usage counter as zero usage.
+- **STEP 19 — `settings.json` semantics.** New `scan.mjs --section settings`: permission
+  rules naming directories that no longer exist, rules duplicated within a list or across
+  both files, the same rule both allowed and denied, `statusLine`/hook commands pointing
+  at deleted scripts, credential-looking `env` var **names**, a configured `outputStyle`
+  matching no file, and unrecognized top-level keys. Unknown keys are reported and never
+  proposed for removal — the key list is hand-maintained and a newer Claude Code is the
+  likelier explanation.
+- **`ledger.mjs` — memory across runs.** Records what the dev decided so a second tune-up
+  stops re-proposing it, and tracks resident tokens per run so regrowth surfaces at
+  STEP 0. Decision keys are content-addressed: rewriting a rule reopens it, because the
+  dev never approved the new wording. New `--all` re-asks everything anyway. The ledger
+  stores paths, hashes and verdicts — **never the dev's instruction text** — and lives
+  beside the backups so a `restore` can't erase it (`restore` calls `revert-run` to drop
+  just that run's decisions).
+- `scan.mjs --section usage` now reports `agentUsage` and `pluginUsage`, plus
+  `countersPresent` so "used zero times" is distinguishable from "we can't see usage".
+- **`claude-tuneup fix` — trace a symptom back to the run that caused it.** The common
+  failure isn't a crash during a tune-up; it's a run that finished cleanly and something
+  being wrong three days later, in a session with no memory of it and a dozen changes to
+  choose from. `restore list` showed timestamps and counts, which can't map a symptom to
+  a cause. New `restore.mjs search <term...>` reads what was always sitting in every
+  restore point: removed item paths, `actions.log`, and the snapshotted
+  `CLAUDE.md`/`AGENTS.md`/`SOUL.md` — so "the rule I had about commits is gone" is
+  findable too. Results are ranked by how many terms hit and presented as candidates, not
+  a verdict. `.claude.json` and `settings*.json` are never searched: they can carry
+  tokens, and a search result is text we print.
+- **Surgical recovery, in both directions.** `restore.mjs apply <RP> --only <path>` handles
+  one item and touches nothing else, so fixing one regression no longer means reverting
+  everything the dev was happy with. A removed item goes back; a created one is moved into
+  `<RP>/undone-creations/`. No fuzzy path matching — restoring the wrong path is worse than
+  asking again — and a newer file that retook the path is parked, never clobbered. `fix`
+  also records a standing keep, so the next run doesn't repropose what just broke things.
+
+### Fixed (undo)
+
+- **"Undo everything" did not undo everything.** `restore.mjs apply` reversed config edits
+  and put removed items back, but nothing recorded what a run *added* — so the skills
+  steps 16 and 17 write were silently left in place by a full restore, and a regression
+  caused by an addition could never be traced. A skill that shadows an existing one
+  changes routing without deleting anything, and the two cases need opposite fixes.
+  New `backup.mjs created <RP> <path>` records additions (the file itself is not touched);
+  `apply` now reverses them, `search` reports them in their own `created` bucket rather
+  than leaving the direction to be inferred from a path, and `list` shows `createdCount`
+  alongside `removedCount`. Undoing an addition **moves** it to `undone-creations/` rather
+  than deleting it — the dev may have edited a skill this tool wrote for them.
+- **A contract for a step failing mid-run.** There wasn't one. A failed **mutation** now
+  halts the whole run — everything after it would reason about a state neither side
+  models — while read failures still continue as before. It reports the raw error, what
+  already changed, and what never ran, then offers: roll everything back, undo just this
+  step, leave it and stop, or say how to fix it. Rollback is never automatic; that would
+  be a second destructive surprise on top of the first. A broken config is repaired first
+  and separately, before any of those choices.
+- **A retry after an undo.** An undo is the strongest signal the tool gets: a run
+  finished, the dev looked at it, and rejected it. Both undo paths now offer a second
+  attempt and **require a stated reason** — a category button plus the dev's own words —
+  because without one a retry is the same run again. The reason is converted into
+  constraints before anything re-runs: named items become standing keeps, nothing the
+  reverted run did comes back by default, and each category maps to a concrete change in
+  how the retry behaves (one edit per confirmation, propose-only, smaller scope). The
+  retry is scoped to the group that failed by default, with a full re-run available on
+  request. `ledger.mjs record-retry` / `retries` store the lineage; reasons survive
+  `revert-run`, since that is the only thing the next attempt knows that this one didn't.
+  Two failed attempts is a hard cap — `depth` is computed from the chain, not guessed —
+  and the summary of an adapted run must quote the reason and name what changed, because
+  unqualified "adjusted based on your input" only claims the dev was listened to.
+
+### Fixed
+
+- **`~/.claude/.credentials.json` no longer routes through the ask-the-dev flow.** It fell
+  through to `class: 'unknown'`, which STEP 7 inspects and asks about — so every run
+  prompted the dev about their own OAuth tokens. Now classed `secret-never-touch`: never
+  read, never offered as a decision. `keybindings.json` joins `config-keep` for the same
+  reason.
+- `insights.mjs` had no test of any kind, despite carrying the recursion guard that exists
+  because it could spawn itself. Refactored to the exported shape `doctor.mjs` was modelled
+  on and covered: the guard, cache TTL, the empty-parse-is-never-cached rule, and a missing
+  `claude` binary (which now reports a reason instead of a timeout message).
+- Repo documentation drift: `CLAUDE.md` described 10 steps and three playbooks against the
+  17 steps and five references actually shipping; `scan.mjs`'s header comment omitted
+  `memory`; `tools/changelog-section.mjs` still pointed at its pre-move path; the two
+  tickets and the modernization plan in `tasks/` read as open work.
+
 ## [5.0.0] - 2026-07-25
 
 A deliberate version jump. claude-tuneup stops being an install
