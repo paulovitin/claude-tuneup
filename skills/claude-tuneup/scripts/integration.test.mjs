@@ -432,6 +432,21 @@ test('apply --only refuses an unknown path instead of restoring the wrong thing'
   fs.rmSync(home, { recursive: true, force: true });
 });
 
+test('apply --only with no path says what is missing instead of throwing a stack trace', () => {
+  const home = makeHome();
+  const rp = run(home, 'backup.mjs', 'create').trim();
+  try {
+    run(home, 'restore.mjs', 'apply', rp, '--only');
+    assert.fail('expected a non-zero exit');
+  } catch (err) {
+    const stderr = String(err.stderr || '');
+    assert.match(stderr, /--only needs a path/, 'the dev is told what to supply');
+    assert.doesNotMatch(stderr, /ERR_INVALID_ARG_TYPE/,
+      'a recovery flow must not answer with an internal stack trace');
+  }
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
 test('apply --only parks a collision beside the path instead of clobbering a newer file', () => {
   const home = makeHome();
   const claude = path.join(home, '.claude');

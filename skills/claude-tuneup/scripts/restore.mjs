@@ -162,6 +162,9 @@ function search(rawTerms) {
 // restore would also revert everything the dev was happy with.
 function applyOnly(rp, target) {
   if (!rp || !exists(rp)) { console.error('restore point not found: ' + rp); process.exit(1); }
+  // `--only` with nothing after it: say so, rather than letting path.resolve throw a raw
+  // stack trace at the dev in the middle of a recovery.
+  if (!target) { console.error('apply --only needs a path: node restore.mjs apply <RP> --only <path>'); process.exit(1); }
   const map = readJSON(path.join(rp, 'removed.json')) || {};
   const wanted = path.resolve(target);
 
