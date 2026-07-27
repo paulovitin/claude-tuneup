@@ -45,6 +45,28 @@ surfaces. This closes the gap, and makes a second run cheap enough to be worth d
   just that run's decisions).
 - `scan.mjs --section usage` now reports `agentUsage` and `pluginUsage`, plus
   `countersPresent` so "used zero times" is distinguishable from "we can't see usage".
+- **`claude-tuneup fix` — trace a symptom back to the run that caused it.** The common
+  failure isn't a crash during a tune-up; it's a run that finished cleanly and something
+  being wrong three days later, in a session with no memory of it and a dozen changes to
+  choose from. `restore list` showed timestamps and counts, which can't map a symptom to
+  a cause. New `restore.mjs search <term...>` reads what was always sitting in every
+  restore point: removed item paths, `actions.log`, and the snapshotted
+  `CLAUDE.md`/`AGENTS.md`/`SOUL.md` — so "the rule I had about commits is gone" is
+  findable too. Results are ranked by how many terms hit and presented as candidates, not
+  a verdict. `.claude.json` and `settings*.json` are never searched: they can carry
+  tokens, and a search result is text we print.
+- **Surgical recovery.** `restore.mjs apply <RP> --only <path>` puts back exactly one item
+  and touches nothing else, so fixing one regression no longer means reverting everything
+  the dev was happy with. No fuzzy path matching — restoring the wrong path is worse than
+  asking again — and a newer file that retook the path is parked, never clobbered. `fix`
+  also records a standing keep, so the next run doesn't repropose what just broke things.
+- **A contract for a step failing mid-run.** There wasn't one. A failed **mutation** now
+  halts the whole run — everything after it would reason about a state neither side
+  models — while read failures still continue as before. It reports the raw error, what
+  already changed, and what never ran, then offers: roll everything back, undo just this
+  step, leave it and stop, or say how to fix it. Rollback is never automatic; that would
+  be a second destructive surprise on top of the first. A broken config is repaired first
+  and separately, before any of those choices.
 - **A retry after an undo.** An undo is the strongest signal the tool gets: a run
   finished, the dev looked at it, and rejected it. Both undo paths now offer a second
   attempt and **require a stated reason** — a category button plus the dev's own words —

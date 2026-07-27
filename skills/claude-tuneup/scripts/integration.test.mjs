@@ -339,3 +339,115 @@ test('the ledger survives a restore, because undo must not erase what the dev de
     'the ledger lives outside the backups and must outlive a restore');
   fs.rmSync(home, { recursive: true, force: true });
 });
+
+// --- v5.1: tracing a symptom back to the run that caused it ---
+
+test('search traces a symptom to the run that removed it, ranked, without reading token files', () => {
+  const home = makeHome();
+  const claude = path.join(home, '.claude');
+  const skill = path.join(claude, 'skills', 'deploy');
+  fs.mkdirSync(skill, { recursive: true });
+  fs.writeFileSync(path.join(skill, 'SKILL.md'), 'deploy steps');
+  fs.writeFileSync(path.join(home, '.claude.json'),
+    JSON.stringify({ projects: {}, mcpServers: {}, oauthAccount: 'token-shaped-secret' }));
+  fs.writeFileSync(path.join(claude, 'CLAUDE.md'), '- always squash before merging\n');
+
+  const rp = run(home, 'backup.mjs', 'create').trim();
+  run(home, 'backup.mjs', 'stash', rp, skill);
+
+  const found = runJSON(home, 'restore.mjs', 'search', 'deploy');
+  assert.equal(found.points.length, 1);
+  const hit = found.points[0];
+  assert.equal(hit.path, rp);
+  assert.equal(hit.items[0].original, skill);
+  assert.equal(hit.items[0].recoverable, true, 'the stashed copy is still there to put back');
+
+  // The snapshotted memory files are searchable, so "the rule about X is gone" is findable.
+  const byRule = runJSON(home, 'restore.mjs', 'search', 'squash');
+  assert.equal(byRule.points[0].memory[0].file, 'CLAUDE.md');
+  assert.match(byRule.points[0].memory[0].text, /squash before merging/);
+
+  // .claude.json is snapshotted but never searched — a hit would print its contents.
+  const secrets = runJSON(home, 'restore.mjs', 'search', 'oauthAccount', 'token-shaped-secret');
+  assert.deepEqual(secrets.points, []);
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('search ranks by how many terms hit and reports when nothing matches', () => {
+  const home = makeHome();
+  const claude = path.join(home, '.claude');
+  const strong = path.join(claude, 'skills', 'deploy-helper');
+  const weak = path.join(claude, 'skills', 'notes');
+  for (const dir of [strong, weak]) {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'SKILL.md'), 'x');
+  }
+  const older = run(home, 'backup.mjs', 'create').trim();
+  run(home, 'backup.mjs', 'stash', older, weak);
+  const newer = run(home, 'backup.mjs', 'create').trim();
+  run(home, 'backup.mjs', 'stash', newer, strong);
+
+  const found = runJSON(home, 'restore.mjs', 'search', 'deploy', 'helper', 'notes');
+  assert.equal(found.points[0].path, newer, 'two terms beat one');
+  assert.equal(found.points[0].score, 2);
+  assert.equal(found.points[1].score, 1);
+
+  assert.deepEqual(runJSON(home, 'restore.mjs', 'search', 'nothingmatchesthis').points, [],
+    'an empty result must be reportable, not an error');
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('apply --only puts back one item and leaves the rest of the run applied', () => {
+  const home = makeHome();
+  const claude = path.join(home, '.claude');
+  const wanted = path.join(claude, 'skills', 'deploy');
+  const other = path.join(claude, 'skills', 'obsolete');
+  for (const dir of [wanted, other]) {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'SKILL.md'), 'x');
+  }
+  const rp = run(home, 'backup.mjs', 'create').trim();
+  run(home, 'backup.mjs', 'stash', rp, wanted);
+  run(home, 'backup.mjs', 'stash', rp, other);
+  fs.writeFileSync(path.join(claude, 'CLAUDE.md'), '# edited by the run\n');
+
+  const result = runJSON(home, 'restore.mjs', 'apply', rp, '--only', wanted);
+  assert.equal(result.ok, true);
+  assert.equal(result.scope, 'single-item');
+  assert.ok(fs.existsSync(path.join(wanted, 'SKILL.md')), 'the one item the dev named comes back');
+  assert.equal(fs.existsSync(other), false, 'the removal they were happy with stays removed');
+  assert.equal(fs.readFileSync(path.join(claude, 'CLAUDE.md'), 'utf8'), '# edited by the run\n',
+    'a surgical restore must not revert config edits');
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('apply --only refuses an unknown path instead of restoring the wrong thing', () => {
+  const home = makeHome();
+  const rp = run(home, 'backup.mjs', 'create').trim();
+  assert.throws(
+    () => run(home, 'restore.mjs', 'apply', rp, '--only', path.join(home, '.claude', 'skills', 'never-removed')),
+    /Command failed/,
+    'no fuzzy matching — restoring the wrong path is worse than asking again',
+  );
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('apply --only parks a collision beside the path instead of clobbering a newer file', () => {
+  const home = makeHome();
+  const claude = path.join(home, '.claude');
+  const skill = path.join(claude, 'skills', 'deploy');
+  fs.mkdirSync(skill, { recursive: true });
+  fs.writeFileSync(path.join(skill, 'SKILL.md'), 'original');
+  const rp = run(home, 'backup.mjs', 'create').trim();
+  run(home, 'backup.mjs', 'stash', rp, skill);
+
+  // The dev rebuilt it by hand before asking for the restore.
+  fs.mkdirSync(skill, { recursive: true });
+  fs.writeFileSync(path.join(skill, 'SKILL.md'), 'rewritten by hand');
+
+  const result = runJSON(home, 'restore.mjs', 'apply', rp, '--only', skill);
+  assert.ok(result.collision, 'the newer file must survive');
+  assert.equal(fs.readFileSync(path.join(skill, 'SKILL.md'), 'utf8'), 'rewritten by hand');
+  assert.equal(fs.readFileSync(path.join(result.restored, 'SKILL.md'), 'utf8'), 'original');
+  fs.rmSync(home, { recursive: true, force: true });
+});

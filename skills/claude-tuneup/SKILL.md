@@ -58,7 +58,7 @@ The mechanical, repeatable work lives in `"$SKILL_DIR"/scripts/*.mjs` — plain 
 
 - `node scripts/scan.mjs [--section a,b]` → read-only discovery of the install as JSON. Sections: `skills`, `plugins`, `hooks`, `mcps`, `projects`, `stateDirs`, `rootFiles`, `settings`, `usage`, `memory`. Run it **once per step with just that step's section** instead of re-scanning everything. Touches nothing.
 - `node scripts/backup.mjs create` → make a restore point, print its path (`$RP`). Also `backup.mjs stash <RP> <path>` (move an item into the restore point, logged) and `backup.mjs log <RP> <msg>`.
-- `node scripts/restore.mjs list` / `restore.mjs apply <RP> [--configs-only|--items-only]` → list restore points, or apply one (fully, or just configs / just removed items).
+- `node scripts/restore.mjs list` / `restore.mjs apply <RP> [--configs-only|--items-only|--only <path>]` → list restore points, or apply one (fully, just configs, just removed items, or a single item). Also `restore.mjs search <term...>` → which past run touched the thing that broke, ranked.
 - `node scripts/doctor.mjs [--no-cache]` → run the built-in `/doctor` headless, **report-only**, and return its findings as JSON (cached 1h). Takes about 6 minutes on a real install.
 - `node scripts/insights.mjs [--no-cache]` → run `/insights` headless and return the useful report sections as JSON (cached 1h).
 - `node scripts/audit-instructions.mjs [--surfaces]` → extract instruction-line signals, or every resident `description`, as JSON. `--surfaces` covers skills, agents, slash commands, output styles and plugin-bundled components; each carries a `residency` label (`confirmed` / `inferred` / `none`) and totals are split by it. Detects only; never classifies.
@@ -113,6 +113,8 @@ Routing:
     claude-tuneup 6,7                → run specific steps
     claude-tuneup claude.md soul.md  → combine groups
     claude-tuneup restore            → undo a previous run from a backup
+    claude-tuneup fix                → "X stopped working": find which run did it, put back
+                                       just that one thing
     claude-tuneup --dry-run          → scan + report what would change, touch nothing
     claude-tuneup --all              → also re-ask everything you kept in earlier runs
     claude-tuneup help               → show this card
@@ -120,9 +122,11 @@ Routing:
   A full run waits ~6 min on /doctor up front, and asks before spending another 6 to verify.
 
   Backups: every run snapshots configs + moved items to ~/.claude-tuneup/backups/<run-id>/.
-  Undo anytime with "claude-tuneup restore". After an undo it asks what went wrong
-  and offers a second attempt built around your answer.
+  Undo anytime with "claude-tuneup restore". If something only breaks days later,
+  "claude-tuneup fix" traces it back and restores just that item. After any undo it
+  asks what went wrong and offers a second attempt built around your answer.
   ```
+- **`fix`** (also: any report that something stopped working, is missing, or changed on its own — *"my X skill isn't firing anymore"*, *"did you delete Y?"*) → **do NOT start a tune-up.** Go to the `fix` section below: symptom, search, ranked candidates, surgical recovery.
 - **`restore`** → undo a previous run, even in a later session. Do NOT run any cleanup step:
   1. List restore points: `node "$SKILL_DIR/scripts/restore.mjs" list` (timestamp, how many items removed, log size).
   2. Ask (AskUserQuestion, with the mandatory "What does this do?" button) which restore point to use.
@@ -209,6 +213,92 @@ Never call `claude -p "/doctor"` by hand from this skill; go through the script.
 **Both are optional by design.** Either can return `{ ok: false, reason }` — no session history, no
 `claude` on PATH, a timeout. Say so in one line and **continue the run without it.** A tune-up must
 never depend on either succeeding.
+
+---
+
+### When a step fails mid-run: stop, show it, offer the way out
+
+**A failed mutation halts the run.** Not the step — the run. Everything after it was going to
+reason about an install state that no longer matches what either of you thinks is there. This is the
+same logic as Rule 3, applied to a worse case.
+
+Two kinds of failure, and only one of them halts:
+
+- **Read failures continue.** A scan section that returns nothing, `/doctor` or `/insights` coming
+  back `ok:false` — say it in one line and carry on. That is already the contract in STEP 0.6.
+- **Mutation failures halt.** A `move`/stash that threw, a `plugin uninstall` that exited non-zero,
+  a config edit whose `validate-json.mjs` came back bad, a delete that didn't stick.
+
+**Never roll back automatically.** An unrequested rollback is a second destructive surprise on top
+of the first. Halt, report, ask.
+
+What to report, before offering anything:
+
+1. **The raw error.** Verbatim — exit code, stderr, the failing path. Do not paraphrase it into
+   reassurance.
+2. **What already changed** in this run, from `$RP/actions.log`, and **what never ran** because you
+   stopped. The dev's first question is "what state am I in?" — answer it before asking anything.
+3. **Whether it is recoverable**: is the item sitting in `$RP/removed/`, or was this a hard `rm` of
+   something regenerable?
+
+Then AskUserQuestion, with the mandatory explain button:
+
+- **"Roll everything back"** → `restore.mjs apply $RP`, then `ledger.mjs revert-run <run-id>`. The
+  whole run, gone. Warn about the `.claude.json` caveat exactly as the `restore` path does.
+- **"Undo just this step"** → put back only what this step touched:
+  `restore.mjs apply $RP --only <path>` per item. Leaves the earlier steps' accepted work alone.
+- **"Leave it and stop"** → change nothing further. Report the partial state and where the restore
+  point is. A perfectly legitimate answer.
+- **"Tell me how to fix it"** → the dev describes what to do differently. Record it as a retry
+  reason and re-run **only the failed step** under it — see the retry contract below, which is the
+  same machinery.
+
+If the failure was a **broken config**, do that repair first and independently: a malformed
+`~/.claude.json` or `settings.json` takes the whole install down, so restore that file from the
+snapshot and re-validate before offering anything else. Don't make the dev choose between buttons
+while their install won't start.
+
+---
+
+### `fix`: when it only breaks later, in another session
+
+The common case is not a crash. It is a tune-up that finished cleanly, the dev going back to work,
+and something being wrong three days later — in a session with no memory of the run, and no idea
+which of a dozen changes did it. `restore list` shows timestamps and counts, which is useless for
+mapping a symptom to a cause. The evidence has been in every restore point's `actions.log` the
+whole time; this reads it.
+
+**Route here on any "X stopped working / X is gone / did you delete Y?"** — including inside another
+run. Do **not** start a tune-up.
+
+1. **Get the symptom in the dev's own words.** Free text, not buttons — this is content, not a
+   decision, so Rule 6 doesn't apply. What stopped working, and roughly when it last worked.
+2. **Pick the search terms yourself** from what they said, and say which ones you used. "my deploy
+   skill stopped firing" → `deploy skill`. The script matches and ranks; choosing the terms is
+   judgment, which is your half of the split.
+
+   ```bash
+   node "$SKILL_DIR/scripts/restore.mjs" search deploy skill
+   ```
+
+   Each candidate carries `score` (how many terms hit), the exact `items` removed with whether the
+   stashed copy is still `recoverable`, matching `actions.log` lines, and matching lines from the
+   snapshotted `CLAUDE.md`/`AGENTS.md`/`SOUL.md` — so "the rule I had about commits is gone" is
+   findable too. `.claude.json` and `settings*.json` are never searched; they can carry tokens.
+3. **Show the candidates ranked, with dates, and let the dev confirm.** `score` is relevance, not
+   proof — never present the top hit as the answer. If nothing matches, say so plainly and offer a
+   manual walk through `restore list`; a confident wrong guess here costs them real work.
+4. **Recover surgically by default.** `restore.mjs apply <RP> --only <path>` puts back one item and
+   touches nothing else. Full rollback is available and should be offered, but it also reverts
+   everything the dev was happy with — say that out loud before they pick it.
+5. **Record it**, so the next tune-up doesn't propose the same removal again:
+
+   ```bash
+   node "$SKILL_DIR/scripts/ledger.mjs" decide "$KEY" keep --note "<the symptom, in their words>"
+   ```
+
+   This is the step that makes `fix` more than a rescue: without it, the next run reproposes exactly
+   what just broke their setup.
 
 ---
 
