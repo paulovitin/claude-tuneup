@@ -106,6 +106,16 @@ surfaces. This closes the gap, and makes a second run cheap enough to be worth d
   because it could spawn itself. Refactored to the exported shape `doctor.mjs` was modelled
   on and covered: the guard, cache TTL, the empty-parse-is-never-cached rule, and a missing
   `claude` binary (which now reports a reason instead of a timeout message).
+- **Path checking was blind on Windows.** `checkCmdPath` only recognized paths beginning
+  with `/`, so a command naming `C:\...\server.exe` matched nothing and the scan reported
+  no finding at all rather than a wrong one — meaning a broken local MCP server path has
+  never once been flagged on Windows. `permissionPathPrefix` likewise rejected anything not
+  starting with `/` and split on `/` alone, leaving every path-shaped permission rule in a
+  Windows settings file unchecked. Both now read a drive letter, and the reported prefix
+  keeps the separator the rule itself used rather than being normalized to the platform's.
+  Because `C:\Program Files\` is where interpreters live, a path is resolved by the longest
+  run that exists instead of stopping at the first space — truncating there would report a
+  working `statusLine` or hook as broken.
 - Repo documentation drift: `CLAUDE.md` described 10 steps and three playbooks against the
   17 steps and five references actually shipping; `scan.mjs`'s header comment omitted
   `memory`; `tools/changelog-section.mjs` still pointed at its pre-move path; the two

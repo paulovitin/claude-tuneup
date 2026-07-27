@@ -41,7 +41,7 @@ Mejor. Sigue leyendo.
 
 ## 🧐 "¿Quieres reescribir reglas que escribí *YO*?"
 
-**No — quiere *proponer*, y la única pluma la tienes tú.** El grupo `instructions` (pasos 12–16)
+**No — quiere *proponer*, y la única pluma la tienes tú.** El grupo `instructions` (pasos 12–18)
 nunca edita una regla por su cuenta. Muestra la línea original, la reescritura sugerida y el
 motivo, y no cambia nada hasta que pulsas un botón:
 
@@ -93,6 +93,31 @@ el contexto — la misma disciplina de tokens que impone a tu `CLAUDE.md`.
 
 ---
 
+## 🔁 "¿Entonces cada ejecución me vuelve a preguntar lo mismo?"
+
+**No tenía forma de evitarlo — nada persistía entre ejecuciones.** El segundo tune-up llegaba
+sin memoria del primero: las mismas reglas señaladas, los mismos rechazos, las mismas
+respuestas. Ahora lo que decidiste queda registrado, y una nueva ejecución abre con una línea
+en vez de reabrir el debate:
+
+```text
+> claude-tuneup
+
+El contexto residente subió ~380 tokens desde tu último tune-up (2026-06-14).
+3 ítems que pediste conservar la vez pasada — omitidos. (`--all` los revisa igualmente.)
+```
+
+- **Una regla que reescribiste vuelve a aparecer.** Las claves son hash del *texto*, no de la
+  ruta — así que una regla reescrita se propone otra vez, y con razón: nunca aprobaste esa
+  redacción. Reformatear un párrafo no cambia nada, porque el espacio en blanco se normaliza
+  antes.
+- **Nada desaparece en silencio.** Los rechazos se colapsan en esa única línea, nunca en nada.
+- **Recuerda tus decisiones, no tu escritura.** Rutas, hashes y veredictos — nunca el contenido
+  de tus archivos de instrucciones. Vive junto a los backups, así que deshacer una ejecución no
+  borra lo que decidiste en todas las demás.
+
+---
+
 ## 🩺 "Claude Code ya trae `/doctor`. ¿Por qué existes?"
 
 **Porque `/doctor` corre primero — esta herramienta insiste en ello.** `/doctor` es mejor
@@ -136,11 +161,48 @@ del directorio de la skill para que una actualización o reinstalación no borre
 deshacer (anúlalo con `$CLAUDE_TUNEUP_STATE`). Los snapshots son solo-propietario, porque
 `.claude.json` puede llevar tokens.
 
+Una ejecución *añade* además de restar, y el undo ahora revierte ambas: las skills escritas para
+ti durante la ejecución quedan registradas y se retiran en un restore completo — *movidas* a
+`undone-creations/`, no borradas, porque puede que hayas editado alguna.
+
 > **"¿Y la propia restauración puede romper algo?"**
 > También es paranoica. Antes de revertir, fotografía tus configs *actuales* en una carpeta
 > `pre-restore-…` — así que hasta deshacer es deshacible — y nunca sobrescribe un elemento más
 > nuevo que reocupó una ruta eliminada: las colisiones aterrizan en `<ruta>.restored-<ts>` y se
 > reportan.
+
+---
+
+## 🔎 "¿Y cuando se rompe tres días después, en otra sesión?"
+
+**Ese caso tiene su propia puerta de entrada.** `restore` da por hecho que sabes qué ejecución
+deshacer. Tres días después no lo sabes — tienes un síntoma, no un id de ejecución:
+
+```text
+> claude-tuneup fix
+
+   "desapareció la regla que tenía sobre los commits"
+
+   2 puntos de restauración lo mencionan — ranqueados, no un veredicto:
+
+   ● 2026-06-14 14:02   CLAUDE.md:14 "squash antes de push"   (eliminada)
+     2026-06-02 09:31   actions.log — skill "git-helper" consolidada
+
+   [ Reponer solo eso ]   [ Ver la ejecución entera ]   [ Ninguno ]
+```
+
+- **Lee lo que cada punto de restauración ya guardaba** — rutas eliminadas, el log de acciones
+  y los `CLAUDE.md`/`AGENTS.md`/`SOUL.md` en snapshot. La evidencia siempre estuvo ahí; faltaba
+  algo que supiera leerla.
+- **Una regresión llega por ambos lados.** Lo obvio es algo eliminado, pero una skill que la
+  ejecución *creó* puede ensombrecer una que ya tenías y cambiar el enrutamiento sin borrar
+  nada. Los dos casos piden arreglos opuestos, así que la dirección se lee del registro, nunca
+  se deduce de la ruta.
+- **Vuelve un ítem, no la ejecución entera** — el resto de ese tune-up sigue aplicado. La
+  recuperación también se registra, para que la próxima ejecución no vuelva a proponer justo lo
+  que acaba de romperse.
+- **Tus secretos no son buscables.** `.claude.json` y `settings*.json` nunca los lee la búsqueda:
+  pueden llevar tokens, y un resultado de búsqueda es texto que te imprime de vuelta.
 
 ---
 
@@ -222,6 +284,7 @@ claude-tuneup claude.md soul.md  # combina grupos
 claude-tuneup --dry-run          # escanea + informa de lo que cambiaría, sin tocar nada
 claude-tuneup help               # lista grupos + disparadores
 claude-tuneup restore            # deshace una ejecución anterior (completa, o solo configs/elementos)
+claude-tuneup fix                # "X dejó de funcionar": rastrea qué ejecución fue y repone solo eso
 ```
 
 **¿Primera vez? Empieza con `--dry-run`** — muestra todo lo que *haría* y no toca nada.
@@ -231,11 +294,11 @@ claude-tuneup restore            # deshace una ejecución anterior (completa, o 
 
 | Grupo | Pasos | Qué hace |
 | -------------------- | ------ | ------------- |
-| 🧹 **`cleanup`**      | 1–8    | Elimina basura + arregla la integridad de las configs — skills, plugins, hooks, MCPs, proyectos, directorios de estado, archivos raíz, `.claude.json` global |
-| 📝 **`instructions`** | 12–17  | Audita lo que se carga en cada sesión: reglas que deberían ser criterio, instrucciones que pelean con el runtime, la misma regla en cuatro sitios, descripciones que enrutan mal, y flujos que repites pero nunca escribiste |
-| 📄 **`claude.md`**    | 9      | Tu `CLAUDE.md` global + el puente con `AGENTS.md` *(para el `CLAUDE.md` versionado de un proyecto, ejecuta `/doctor` — lo hace mejor)* |
-| ♻️ **`soul.md`**      | 10     | Migra un `SOUL.md` heredado a la auto-memoria de Claude, y lo retira |
-| 📊 **`summary`**      | 11     | Informe final de lo que cambió + cómo deshacerlo *(siempre corre al final)* |
+| 🧹 **`cleanup`**      | 1–8, 19 | Elimina basura + arregla la integridad de las configs — skills, plugins, hooks, MCPs, proyectos, directorios de estado, archivos raíz, `.claude.json` global, y lo que el `settings.json` dice de verdad — rutas muertas, reglas de permiso que se contradicen |
+| 📝 **`instructions`** | 12–18   | Audita cada superficie que se carga en cada sesión — reglas, descripciones de skills y agents, slash commands, output styles, componentes de plugins: reglas que deberían ser criterio, instrucciones que pelean con el runtime, la misma regla en cuatro sitios, descripciones que enrutan mal, y flujos que repites pero nunca escribiste |
+| 📄 **`claude.md`**    | 9       | Tu `CLAUDE.md` global + el puente con `AGENTS.md` *(para el `CLAUDE.md` versionado de un proyecto, ejecuta `/doctor` — lo hace mejor)* |
+| ♻️ **`soul.md`**      | 10      | Migra un `SOUL.md` heredado a la auto-memoria de Claude, y lo retira |
+| 📊 **`summary`**      | 11      | Informe final de lo que cambió + cómo deshacerlo *(siempre corre al final)* |
 
 Sin argumento lo ejecuta todo. Los números de paso son históricos; el orden de ejecución es
 diagnosticar → sustraer → reorganizar → añadir.
@@ -258,15 +321,16 @@ skills/claude-tuneup/
 ├─ SKILL.md               # enrutado + contrato de UX + reglas de seguridad (ligero — se carga al disparo)
 ├─ VERSION                # versión publicada de la skill (alimenta el aviso de actualización)
 ├─ references/            # playbooks por grupo, cargados solo cuando ese grupo corre
-│  ├─ cleanup.md          #   pasos 1–8
-│  ├─ instructions.md     #   pasos 12–17
+│  ├─ cleanup.md          #   pasos 1–8, 19
+│  ├─ instructions.md     #   pasos 12–18
 │  ├─ harness-invariants.md  # lo que el runtime ya hace (la lista del paso 13)
 │  ├─ claude-md.md        #   paso 9
 │  └─ soul-md.md          #   paso 10
 └─ scripts/               # deterministas, multi-OS (recopilar & aplicar)
    ├─ scan.mjs            # descubrimiento de solo lectura → JSON (--section para una sola porción)
    ├─ backup.mjs          # punto de restauración + snapshot + stash
-   ├─ restore.mjs         # listar / aplicar (completo, --configs-only, --items-only)
+   ├─ restore.mjs         # listar / buscar / aplicar (completo, configs, ítems, o uno solo --only <ruta>)
+   ├─ ledger.mjs          # lo que decidiste en la run anterior, para no volver a preguntar (nunca el contenido de los archivos)
    ├─ doctor.mjs          # ejecuta el /doctor integrado headless, solo-informe (caché 1h)
    ├─ insights.mjs        # ejecuta /insights headless (caché 1h; --no-cache)
    ├─ audit-instructions.mjs  # señales de instrucciones + descripciones residentes → JSON

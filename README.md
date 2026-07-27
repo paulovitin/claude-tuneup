@@ -53,7 +53,7 @@ is [down here](#-fine-what-am-i-typing). Not convinced? Better. Keep reading.
 
 ## 🧐 "You want to rewrite rules that *I* wrote?"
 
-**No — it wants to *propose*, and you hold the only pen.** The `instructions` group (steps 12–16)
+**No — it wants to *propose*, and you hold the only pen.** The `instructions` group (steps 12–18)
 never edits a rule on its own. It shows the original line, the suggested rewrite, and the reason,
 and changes nothing until you pick a button:
 
@@ -102,6 +102,29 @@ running enters the context — the same token discipline it enforces on your `CL
 
 ---
 
+## 🔁 "So every run re-asks me the same things?"
+
+**It had no way not to — nothing persisted between runs.** A second tune-up arrived with no
+memory of the first: same flagged rules, same declines, same answers. Now what you decided is
+recorded, and a re-run opens with one line instead of a re-litigation:
+
+```text
+> claude-tuneup
+
+Resident context is up ~380 tokens since your last tune-up (2026-06-14).
+3 items you asked me to keep last time — skipped. (`--all` reviews them anyway.)
+```
+
+- **A rule you reworded comes back.** Keys hash the *text*, not the path — so a rewritten rule
+  is proposed again, correctly: you never approved that wording. Reflowing a paragraph changes
+  nothing, because whitespace is normalized first.
+- **Nothing is dropped silently.** Declines collapse into that one line, never into nothing.
+- **It remembers your decisions, not your writing.** Paths, hashes and verdicts — never the
+  contents of your instruction files. It lives beside the backups, so undoing one run can't
+  erase what you decided in all the others.
+
+---
+
 ## 🩺 "Claude Code already ships `/doctor`. Why do you exist?"
 
 **Because `/doctor` runs first — this tool insists on it.** `/doctor` is better at taking
@@ -142,10 +165,45 @@ claude-tuneup restore    # pick the restore point → full, configs-only, or ite
 or reinstall can't wipe your undo history (override with `$CLAUDE_TUNEUP_STATE`). Snapshots are
 owner-only, because `.claude.json` can carry tokens.
 
+A run *adds* as well as subtracts, and undo now reverses both: skills written for you during a
+run are recorded and taken back out on a full restore — *moved* into `undone-creations/`, not
+deleted, since you may have edited one since.
+
 > **"Can the restore itself break something?"**
 > It's paranoid too. Before rolling back, it snapshots your *current* configs into a
 > `pre-restore-…` folder — so even undoing is undoable — and it never overwrites a newer item
 > that re-took a removed path: collisions land at `<path>.restored-<ts>` and are reported.
+
+---
+
+## 🔎 "And when it breaks three days later, in another session?"
+
+**That one has its own entry point.** `restore` assumes you know which run to undo. Three days
+on you don't — you have a symptom, not a run id:
+
+```text
+> claude-tuneup fix
+
+   "the rule I had about commits is gone"
+
+   2 restore points mention it — ranked, not a verdict:
+
+   ● 2026-06-14 14:02   CLAUDE.md:14 "squash before pushing"   (removed)
+     2026-06-02 09:31   actions.log — consolidated skill "git-helper"
+
+   [ Put back just that ]   [ Show me the whole run ]   [ Neither ]
+```
+
+- **It reads what every restore point already held** — removed paths, the action log, and the
+  snapshotted `CLAUDE.md`/`AGENTS.md`/`SOUL.md`. The evidence was always there; nothing could
+  read it back to you.
+- **A regression cuts both ways.** Something removed is the obvious cause, but a skill the run
+  *created* can shadow one you had and change routing without deleting anything. The two need
+  opposite fixes, so the direction is read from the record, never inferred from the path.
+- **One item goes back, not the whole run** — the rest of that tune-up stays applied. The
+  recovery is recorded too, so the next run doesn't re-propose the very thing that just broke.
+- **Your secrets aren't searchable.** `.claude.json` and `settings*.json` are never read by the
+  search: they can carry tokens, and a search result is text it prints back to you.
 
 ---
 
@@ -223,6 +281,7 @@ claude-tuneup claude.md soul.md  # combine groups
 claude-tuneup --dry-run          # scan + report what would change, touch nothing
 claude-tuneup help               # list groups + triggers
 claude-tuneup restore            # undo a previous run (fully, or configs/items only)
+claude-tuneup fix                # "X stopped working": trace which run did it, put back just that
 ```
 
 **First time? Start with `--dry-run`** — it shows everything it *would* do and touches nothing.
@@ -231,11 +290,11 @@ and `/insights`, both read-only and cached for an hour — so budget the `/docto
 
 | Group | Steps | What it does |
 | -------------------- | ------ | ------------- |
-| 🧹 **`cleanup`**      | 1–8    | Remove junk + fix config integrity — skills, plugins, hooks, MCPs, projects, state dirs, root files, global `.claude.json` |
-| 📝 **`instructions`** | 12–17  | Audit what loads every session: rules that should be judgment, instructions that fight the runtime, the same rule in four places, descriptions that route badly, and workflows you repeat but never wrote down |
-| 📄 **`claude.md`**    | 9      | Your global `CLAUDE.md` + the `AGENTS.md` bridge *(for a project's checked-in `CLAUDE.md`, run `/doctor` — it does that better)* |
-| ♻️ **`soul.md`**      | 10     | Migrate a legacy `SOUL.md` into Claude's auto-memory, then retire it |
-| 📊 **`summary`**      | 11     | Final report of what changed + how to undo *(always runs last)* |
+| 🧹 **`cleanup`**      | 1–8, 19 | Remove junk + fix config integrity — skills, plugins, hooks, MCPs, projects, state dirs, root files, global `.claude.json`, and what `settings.json` actually says — dead paths, permission rules that contradict each other |
+| 📝 **`instructions`** | 12–18   | Audit every surface that loads each session — rules, skill and agent descriptions, slash commands, output styles, plugin-bundled components: rules that should be judgment, instructions that fight the runtime, the same rule in four places, descriptions that route badly, and workflows you repeat but never wrote down |
+| 📄 **`claude.md`**    | 9       | Your global `CLAUDE.md` + the `AGENTS.md` bridge *(for a project's checked-in `CLAUDE.md`, run `/doctor` — it does that better)* |
+| ♻️ **`soul.md`**      | 10      | Migrate a legacy `SOUL.md` into Claude's auto-memory, then retire it |
+| 📊 **`summary`**      | 11      | Final report of what changed + how to undo *(always runs last)* |
 
 No argument runs everything. Step numbers are historical; the run order is
 diagnose → subtract → reorganize → add.
@@ -257,15 +316,16 @@ skills/claude-tuneup/
 ├─ SKILL.md               # routing + UX contract + safety rules (lean — loads on trigger)
 ├─ VERSION                # shipped skill version (drives the update nudge)
 ├─ references/            # per-group playbooks, loaded only when that group runs
-│  ├─ cleanup.md          #   steps 1–8
-│  ├─ instructions.md     #   steps 12–17
+│  ├─ cleanup.md          #   steps 1–8, 19
+│  ├─ instructions.md     #   steps 12–18
 │  ├─ harness-invariants.md  # what the runtime already does (step 13's list)
 │  ├─ claude-md.md        #   step 9
 │  └─ soul-md.md          #   step 10
 └─ scripts/               # deterministic, cross-OS (gather & apply)
    ├─ scan.mjs            # read-only discovery → JSON (--section for just one slice)
    ├─ backup.mjs          # restore point + snapshot + stash
-   ├─ restore.mjs         # list / apply (full, --configs-only, --items-only)
+   ├─ restore.mjs         # list / search / apply (full, configs, items, or one --only <path>)
+   ├─ ledger.mjs          # what you decided last run, so a re-run does not re-ask (never file contents)
    ├─ doctor.mjs          # run the built-in /doctor headless, report-only (cached 1h)
    ├─ insights.mjs        # run /insights headless (cached 1h; --no-cache)
    ├─ audit-instructions.mjs  # instruction signals + resident descriptions → JSON
