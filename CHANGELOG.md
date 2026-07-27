@@ -45,6 +45,19 @@ surfaces. This closes the gap, and makes a second run cheap enough to be worth d
   just that run's decisions).
 - `scan.mjs --section usage` now reports `agentUsage` and `pluginUsage`, plus
   `countersPresent` so "used zero times" is distinguishable from "we can't see usage".
+- **A retry after an undo.** An undo is the strongest signal the tool gets: a run
+  finished, the dev looked at it, and rejected it. Both undo paths now offer a second
+  attempt and **require a stated reason** — a category button plus the dev's own words —
+  because without one a retry is the same run again. The reason is converted into
+  constraints before anything re-runs: named items become standing keeps, nothing the
+  reverted run did comes back by default, and each category maps to a concrete change in
+  how the retry behaves (one edit per confirmation, propose-only, smaller scope). The
+  retry is scoped to the group that failed by default, with a full re-run available on
+  request. `ledger.mjs record-retry` / `retries` store the lineage; reasons survive
+  `revert-run`, since that is the only thing the next attempt knows that this one didn't.
+  Two failed attempts is a hard cap — `depth` is computed from the chain, not guessed —
+  and the summary of an adapted run must quote the reason and name what changed, because
+  unqualified "adjusted based on your input" only claims the dev was listened to.
 
 ### Fixed
 

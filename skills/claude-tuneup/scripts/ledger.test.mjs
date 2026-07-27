@@ -172,3 +172,68 @@ test('the ledger lives outside the backups so restoring a run cannot erase it', 
   assert.ok(fs.existsSync(ledgerPath(home)));
   fs.rmSync(home, { recursive: true, force: true });
 });
+
+// --- retry after an undo (v5.1) ---
+
+test('a retry without a stated reason is refused — that is just the same run again', () => {
+  const home = makeHome();
+  assert.match(run(home, 'record-retry', '--of', 'r1').reason, /needs --reason/);
+  assert.match(run(home, 'record-retry', '--of', 'r1', '--reason', '   ').reason, /needs --reason/);
+  assert.match(run(home, 'record-retry', '--reason', 'it broke things').reason, /needs --of/);
+  assert.equal(fs.existsSync(ledgerPath(home)), false, 'a refused retry must not create a ledger');
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('the retry reason is kept verbatim and survives reverting the run it describes', () => {
+  const home = makeHome();
+  run(home, 'record-run', '--id', 'r1', '--groups', 'cleanup');
+  const recorded = run(home, 'record-retry', '--of', 'r1',
+    '--category', 'deleted-something-needed',
+    '--reason', 'it deleted the deploy skill I still use');
+  assert.equal(recorded.ok, true);
+  assert.equal(recorded.retry.reason, 'it deleted the deploy skill I still use');
+  assert.equal(recorded.retry.category, 'deleted-something-needed');
+
+  // Undoing the run erases what it decided, never why it was thrown away.
+  run(home, 'revert-run', 'r1');
+  const after = run(home, 'retries', '--of', 'r1');
+  assert.equal(after.retries.length, 1);
+  assert.equal(after.retries[0].reason, 'it deleted the deploy skill I still use');
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('chain depth counts real attempts, so the two-failure cap is a number and not a feeling', () => {
+  const home = makeHome();
+  const first = run(home, 'record-retry', '--of', 'r1', '--id', 'r2', '--reason', 'deleted my skill');
+  assert.equal(first.depth, 1);
+
+  const second = run(home, 'record-retry', '--of', 'r2', '--id', 'r3', '--reason', 'still too aggressive');
+  assert.equal(second.depth, 2, 'at 2 the skill must stop offering another sweep');
+
+  // A second attempt has to satisfy the FIRST complaint too, or it fixes the newest one
+  // by reintroducing the oldest — so the whole lineage comes back, oldest first.
+  const lineage = run(home, 'retries', '--of', 'r3');
+  assert.deepEqual(lineage.retries.map((r) => r.reason), ['deleted my skill', 'still too aggressive']);
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('a retry run is linked to the attempt it replaces', () => {
+  const home = makeHome();
+  fs.writeFileSync(path.join(home, '.claude', 'CLAUDE.md'), '- rule\n');
+  const retryRun = run(home, 'record-run', '--id', 'r2', '--retry-of', 'r1', '--groups', 'cleanup');
+  assert.equal(retryRun.retryOf, 'r1');
+
+  // An ordinary run carries no lineage at all.
+  assert.equal(run(home, 'record-run', '--id', 'r3').retryOf, undefined);
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('retries recorded against an undone run are findable by that run id', () => {
+  const home = makeHome();
+  run(home, 'record-retry', '--of', 'r1', '--reason', 'broke my settings');
+  // Right after an undo the skill only knows the id it just reverted.
+  const found = run(home, 'retries', '--of', 'r1');
+  assert.equal(found.retries.length, 1);
+  assert.equal(found.retries[0].retryOf, 'r1');
+  fs.rmSync(home, { recursive: true, force: true });
+});

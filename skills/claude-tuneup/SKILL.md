@@ -62,7 +62,7 @@ The mechanical, repeatable work lives in `"$SKILL_DIR"/scripts/*.mjs` — plain 
 - `node scripts/doctor.mjs [--no-cache]` → run the built-in `/doctor` headless, **report-only**, and return its findings as JSON (cached 1h). Takes about 6 minutes on a real install.
 - `node scripts/insights.mjs [--no-cache]` → run `/insights` headless and return the useful report sections as JSON (cached 1h).
 - `node scripts/audit-instructions.mjs [--surfaces]` → extract instruction-line signals, or every resident `description`, as JSON. `--surfaces` covers skills, agents, slash commands, output styles and plugin-bundled components; each carries a `residency` label (`confirmed` / `inferred` / `none`) and totals are split by it. Detects only; never classifies.
-- `node scripts/ledger.mjs <cmd>` → cross-run memory: `key`, `check`, `decide`, `record-run`, `trend`, `revert-run`. Stores paths, hashes and verdicts in `~/.claude-tuneup/ledger.json` — never the dev's instruction text.
+- `node scripts/ledger.mjs <cmd>` → cross-run memory: `key`, `check`, `decide`, `record-run`, `trend`, `revert-run`, `record-retry`, `retries`. Stores paths, hashes, verdicts and retry reasons in `~/.claude-tuneup/ledger.json` — never the contents of the dev's instruction files.
 - `node scripts/consolidate.mjs <name> [--undo]` → move a skill from `~/.claude/skills/` to `~/.agents/skills/` and link back (junction fallback on Windows).
 - `node scripts/validate-json.mjs <file...>` → confirm a JSON file still parses (use after every config edit).
 - `node scripts/version-check.mjs` → compares the shipped version against the latest GitHub release (cached 24h, fails silently offline). Prints `update:true` + a one-line `message` only when behind. Relay that line; otherwise say nothing.
@@ -120,7 +120,8 @@ Routing:
   A full run waits ~6 min on /doctor up front, and asks before spending another 6 to verify.
 
   Backups: every run snapshots configs + moved items to ~/.claude-tuneup/backups/<run-id>/.
-  Undo anytime with "claude-tuneup restore".
+  Undo anytime with "claude-tuneup restore". After an undo it asks what went wrong
+  and offers a second attempt built around your answer.
   ```
 - **`restore`** → undo a previous run, even in a later session. Do NOT run any cleanup step:
   1. List restore points: `node "$SKILL_DIR/scripts/restore.mjs" list` (timestamp, how many items removed, log size).
@@ -130,6 +131,7 @@ Routing:
   5. Apply: `node "$SKILL_DIR/scripts/restore.mjs" apply <RP> [--configs-only|--items-only]` — prints `restored`, `collisions` (items that couldn't take their original path and where they went), `preRestoreSnapshot` (the pre-restore safety copy, when configs were restored), and `manualReAdd` (marketplaces/plugins for you to replay).
   6. Validate restored JSON: `node "$SKILL_DIR/scripts/validate-json.mjs" ~/.claude.json ~/.claude/settings.json`. Report `collisions` to the dev so they resolve any `.restored-<ts>` items by hand. Offer to keep or purge the restore point + the pre-restore snapshot afterward.
   7. Retire that run's decisions: `node "$SKILL_DIR/scripts/ledger.mjs" revert-run <run-id>`. Undoing a run un-decides it — leaving the verdicts in place would keep suppressing questions about changes that no longer exist. The ledger itself survives (it lives beside the backups, not inside them), so every *other* run's decisions stand.
+  8. Then offer the retry — see "After an undo" below.
 - **`--dry-run`** → run every read-only step in **report mode**: scan, show what would be removed/consolidated/changed, include sizes, but **ask zero delete questions** and touch nothing — and that includes STEP 0.5: a dry run changes nothing, so do **NOT** create a restore point (it would only litter `~/.claude-tuneup/backups/` with empty entries). Skip stash/move/rm entirely. STEP 0.6 still makes its opening calls (they only read); the closing `/doctor` pass never runs. Report "DRY RUN — nothing was changed" in the summary. A dry run also records **nothing** in the ledger — no `decide`, no `record-run` — though it still reads `trend` and `check`, so its report reflects what you'd actually be asked. **This is the best first contact with the tool** — suggest it to anyone running claude-tuneup for the first time.
 - **`--all`** (aliases: `reset`, "review everything again") → run normally but **ignore the ledger's `declined` list**, re-asking items the dev kept in earlier runs. Nothing else changes; decisions from this run are still recorded. Offer it whenever the collapsed "N items you asked me to keep" line is what the dev seems to be asking about.
 - **Argument given** (a group/steps) → run exactly that. Accept group names (`cleanup`, `instructions`, `claude.md`, `soul.md`, `summary`), step numbers, or ranges (`1-3`, `step 5`, `6,7`, `12-17`). Then run STEP 11. Be lenient on aliases (`audit`/`rules` → `instructions`, `insights` → `instructions`, `soul` → `soul.md`).
@@ -210,6 +212,73 @@ never depend on either succeeding.
 
 ---
 
+### After an undo: offer a second attempt, and make it a different one
+
+An undo is the strongest signal this tool ever gets. It means a run reached the end, the dev looked
+at the result, and rejected it. **Both undo paths end here** — `restore`, and STEP 11's "Undo
+everything".
+
+**1. Ask whether to retry.** AskUserQuestion, with the mandatory explain button:
+
+- **"Try again — I'll tell you what went wrong"**
+- **"No, leave it undone"** ← always available, always first-class. Someone who just wants out must
+  never have to argue their way past a retry prompt.
+
+If they decline, stop. Say the undo stands and the restore point is still on disk. Nothing else.
+
+**2. The reason is required.** No reason, no retry — the reason is the only thing the next attempt
+knows that this one didn't, so without it a retry is the same run again. Collect two things:
+
+- **A category, as buttons** (this is the part a step can act on mechanically): *deleted something I
+  needed* · *rewrote a rule I wanted kept* · *broke a config* · *changed too much at once* · *took
+  too long* · *something else*.
+- **Their own words, as free text.** This is content, not a decision, so Rule 6 does not apply — ask
+  for it plainly. Then read it back and confirm you understood before doing anything.
+
+```bash
+node "$SKILL_DIR/scripts/ledger.mjs" record-retry --of <undone-run-id> \
+  --category <slug> --reason "<their words>"
+```
+
+It returns `depth` — how many attempts already sit behind this one.
+
+**3. Turn the reason into constraints before re-running.** This is the step that makes a retry
+different from a repeat. Carrying the reason "in mind" is not enough; convert it into things the
+run mechanically cannot do:
+
+- **Name the items.** For everything the reason points at — a skill, a rule, a config key — record a
+  standing keep, so no step can propose it again:
+  `ledger.mjs decide "$KEY" keep --note "<reason>"`. Read `$RP/actions.log` and `$RP/removed.json`
+  to resolve "my deploy skill" into the exact path the last run touched.
+- **Nothing the previous run did comes back by default.** The dev reverted that result as a whole.
+  Re-propose an individual piece of it only if the reason says that piece was fine.
+- **Match the category to a behavior change**, and say which one you applied:
+
+  | Category | What changes in the retry |
+  |---|---|
+  | deleted something I needed | that item is a standing keep; the whole step re-runs in propose-only mode, one item at a time |
+  | rewrote a rule I wanted kept | every rewrite in steps 12/15/16 is shown as a diff and confirmed individually — no batched rewrite questions |
+  | broke a config | config-editing steps (3, 4, 5, 8, 19) run last, one edit per confirmation, `validate-json.mjs` after each |
+  | changed too much at once | drop to a single group per run; propose the smallest coherent change set and stop |
+  | took too long | skip the closing `/doctor` pass, reuse the cached opening one, and cut the scope to the group that matters |
+  | something else | no mechanical rule fires — the words are all you have, so restate your reading of them and get it confirmed before starting |
+
+**4. Scope it down by default.** Suggest re-running **only the group that produced the problem**,
+with "run everything again" as an explicit alternative the dev can pick. A run that just broke
+something is the worst candidate for repeating in full — say that plainly rather than quietly
+narrowing the scope on them.
+
+**5. A retry is a new run.** New restore point (STEP 0.5), new run id, and record it as part of the
+lineage: `ledger.mjs record-run --retry-of <undone-run-id> --id <new-run-id> …`. Before starting,
+read `ledger.mjs retries --of <run-id>`: on a second retry you must satisfy the **earlier** reasons
+too, or you will fix the newest complaint by reintroducing the oldest.
+
+**6. Two failures is the cap.** If `depth` is already ≥ 2, do **not** offer a third pass. Say so
+directly — twice wrong means the tool is misreading something about this install, and a third
+sweep will not find it. Offer instead: a single named step, a `--dry-run`, or nothing at all.
+
+---
+
 ## Main flow
 
 1. STEP 0 routing decided which groups run; STEP 0.5 made the restore point; STEP 0.6 gathered evidence.
@@ -250,6 +319,18 @@ For an `instructions` run, report what actually matters to the dev: **resident t
 after**, rules rewritten, conflicts found (and any they chose to keep — say so plainly, they made a
 call), duplicates removed, descriptions rewritten, skills created, and whether `SOUL.md` was migrated.
 
+**If this run is a retry, say so and say what you did differently.** Open the summary with it —
+quote the dev's stated reason back to them, name the constraint it became, and name what this run
+did *not* do as a result:
+
+> *Adapted from your feedback.* You said: *"it deleted the deploy skill I still use."* This run kept
+> `~/.claude/skills/deploy/` off the table entirely and asked one item at a time instead of in
+> batches. 4 proposals, 2 applied — down from 11 last time.
+
+Vague credit is worse than none: "adjusted based on your input" with nothing after it just claims
+the dev was listened to. If a stated reason produced **no** change in behavior, say that too, and
+say why.
+
 **How to undo** — always show this, pointing at the run's restore point `$RP` (`~/.claude-tuneup/backups/<run-id>/`):
 - Restore everything, or selectively: `node "$SKILL_DIR/scripts/restore.mjs" apply $RP [--configs-only|--items-only]`.
 - Recover a single removed item by hand: it's in `$RP/removed/` — move it back.
@@ -268,7 +349,7 @@ Record **every** decision, including the keeps — a keep is the one that saves 
 Then, via AskUserQuestion, ask if the result looks good:
 - **"Looks good — purge restore point"** → `rm -rf $RP` (frees the space held by removed items).
 - **"Keep backup for now"** → leave `$RP`; mention old restore points under `~/.claude-tuneup/backups/` can be pruned later.
-- **"Undo everything"** → `node "$SKILL_DIR/scripts/restore.mjs" apply $RP`, then replay re-add commands from `actions.log`.
+- **"Undo everything"** → `node "$SKILL_DIR/scripts/restore.mjs" apply $RP`, then replay re-add commands from `actions.log`, `ledger.mjs revert-run <run-id>`, and then **offer the retry** — see "After an undo".
 
 ---
 

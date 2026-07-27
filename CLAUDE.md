@@ -48,7 +48,7 @@ Two layers, deliberately split:
 - **Trust scan flags over names.** Items are classified by traits (size/age/broken-link/transport), not hardcoded names. If `plugins.listingReliable` is false, never propose uninstalls from the listing (format-drift fuse).
 - **Never read `.credentials.json`, and never print an env value.** Scans emit credential-looking env var *names* only (`secretHints`, `envSecretHints`); `.credentials.json` is classed `secret-never-touch` and is skipped without being opened.
 - **A claim about the harness carries an evidence label.** `confirmed` vs `inferred` in `harness-invariants.md` and in `--surfaces` `residency`. Never fold inferred cost into a confirmed total — `approxResidentTokens` and `approxResidentTokensInferred` stay separate for that reason.
-- **The ledger stores hashes, never the user's text**, and lives beside the backups (`~/.claude-tuneup/ledger.json`) so a restore can't erase it. Decision keys are content-addressed: rewriting a rule reopens it.
+- **The ledger stores hashes and retry reasons, never the contents of the user's instruction files**, and lives beside the backups (`~/.claude-tuneup/ledger.json`) so a restore can't erase it. Decision keys are content-addressed: rewriting a rule reopens it. `revert-run` drops an undone run's decisions but never its retry reasons — those are what the next attempt has to work with.
 - `CLAUDE_TUNEUP_HOME` overrides `HOME` for every script — the entire test suite relies on it. Anything reading the install must route through `lib.mjs` constants, not `os.homedir()` directly.
 
 ## Releasing
