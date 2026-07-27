@@ -26,8 +26,8 @@ This file holds the **routing, the UX contract, and the safety rules** — they 
 
 | Group | Steps | What it does | Playbook |
 |-------|-------|--------------|----------|
-| **cleanup** | 1–8 | remove junk, fix config integrity | `"$SKILL_DIR"/references/cleanup.md` |
-| **instructions** | 12–17 | audit the rules and descriptions that load every session | `"$SKILL_DIR"/references/instructions.md` |
+| **cleanup** | 1–8, 19 | remove junk, fix config integrity | `"$SKILL_DIR"/references/cleanup.md` |
+| **instructions** | 12–18 | audit the rules and descriptions that load every session | `"$SKILL_DIR"/references/instructions.md` |
 | **claude.md** | 9 | the global `CLAUDE.md` + its AGENTS.md bridge | `"$SKILL_DIR"/references/claude-md.md` |
 | **soul.md** | 10 | migrate a legacy `SOUL.md` into auto-memory, then retire it | `"$SKILL_DIR"/references/soul-md.md` |
 | **summary** | 11 | always runs last; what changed + how to undo | below |
@@ -56,12 +56,13 @@ Never make the dev decide on something they can't identify.
 
 The mechanical, repeatable work lives in `"$SKILL_DIR"/scripts/*.mjs` — plain Node (no deps), so it runs the same on macOS, Windows and Linux via the `node` that Claude Code already bundles. **Prefer these over ad-hoc inline shell** — never reach for `python3`, which is not guaranteed to exist; the agent's job is judgment (classify, ask, decide), the scripts' job is gather/apply.
 
-- `node scripts/scan.mjs [--section a,b]` → read-only discovery of the install as JSON. Sections: `skills`, `plugins`, `hooks`, `mcps`, `projects`, `stateDirs`, `rootFiles`, `usage`, `memory`. Run it **once per step with just that step's section** instead of re-scanning everything. Touches nothing.
+- `node scripts/scan.mjs [--section a,b]` → read-only discovery of the install as JSON. Sections: `skills`, `plugins`, `hooks`, `mcps`, `projects`, `stateDirs`, `rootFiles`, `settings`, `usage`, `memory`. Run it **once per step with just that step's section** instead of re-scanning everything. Touches nothing.
 - `node scripts/backup.mjs create` → make a restore point, print its path (`$RP`). Also `backup.mjs stash <RP> <path>` (move an item into the restore point, logged) and `backup.mjs log <RP> <msg>`.
 - `node scripts/restore.mjs list` / `restore.mjs apply <RP> [--configs-only|--items-only]` → list restore points, or apply one (fully, or just configs / just removed items).
 - `node scripts/doctor.mjs [--no-cache]` → run the built-in `/doctor` headless, **report-only**, and return its findings as JSON (cached 1h). Takes about 6 minutes on a real install.
 - `node scripts/insights.mjs [--no-cache]` → run `/insights` headless and return the useful report sections as JSON (cached 1h).
-- `node scripts/audit-instructions.mjs [--surfaces]` → extract instruction-line signals, or every resident `description`, as JSON. Detects only; never classifies.
+- `node scripts/audit-instructions.mjs [--surfaces]` → extract instruction-line signals, or every resident `description`, as JSON. `--surfaces` covers skills, agents, slash commands, output styles and plugin-bundled components; each carries a `residency` label (`confirmed` / `inferred` / `none`) and totals are split by it. Detects only; never classifies.
+- `node scripts/ledger.mjs <cmd>` → cross-run memory: `key`, `check`, `decide`, `record-run`, `trend`, `revert-run`. Stores paths, hashes and verdicts in `~/.claude-tuneup/ledger.json` — never the dev's instruction text.
 - `node scripts/consolidate.mjs <name> [--undo]` → move a skill from `~/.claude/skills/` to `~/.agents/skills/` and link back (junction fallback on Windows).
 - `node scripts/validate-json.mjs <file...>` → confirm a JSON file still parses (use after every config edit).
 - `node scripts/version-check.mjs` → compares the shipped version against the latest GitHub release (cached 24h, fails silently offline). Prints `update:true` + a one-line `message` only when behind. Relay that line; otherwise say nothing.
@@ -72,9 +73,21 @@ The mechanical, repeatable work lives in `"$SKILL_DIR"/scripts/*.mjs` — plain 
 
 ## STEP 0: Pick what to run (start here)
 
-The 17 steps form 5 named groups (see the map above). **With no argument, run all of them** — a tune-up is the default, and every individual change is still confirmed one at a time.
+The 19 steps form 5 named groups (see the map above). **With no argument, run all of them** — a tune-up is the default, and every individual change is still confirmed one at a time.
 
-**Update nudge (token-cheap, do this first).** Run `node "$SKILL_DIR/scripts/version-check.mjs"` once at the very start. If it returns `update:true`, relay its one-line `message` to the dev before anything else. If `update:false` or `ok:false`, say nothing about versions and continue silently — never make the version check noisy or blocking. Skip it on `help`.
+**Two token-cheap openers, in this order, before anything else.** Both are one line or silence; neither is ever blocking. Skip both on `help`.
+
+1. `node "$SKILL_DIR/scripts/version-check.mjs"` — if it returns `update:true`, relay its one-line `message`. On `update:false` or `ok:false`, say nothing about versions.
+2. `node "$SKILL_DIR/scripts/ledger.mjs" trend` — if `message` is non-null, open with it (*"resident context is up ~380 tokens since the last tune-up"*). On `firstRun` or a null `message`, say nothing.
+
+**Don't re-ask what the dev already settled.** Before any step asks about an item, build its key and look it up:
+
+```bash
+K=$(node "$SKILL_DIR/scripts/ledger.mjs" key <kind> <path> "<the exact text>" | ...)
+node "$SKILL_DIR/scripts/ledger.mjs" check "$K" ...
+```
+
+Anything in `declined` is something the dev already told you to keep — **collapse the whole set into one line** (*"3 items you asked me to keep last time"*) rather than asking again, and never drop them silently. Keys are content-addressed, so a rule the dev has since rewritten reopens on its own. `--all` overrides the filter.
 
 Routing:
 - **`help` / `?`** → print the help card below and **stop** (run nothing):
@@ -86,8 +99,8 @@ Routing:
   A complement to it, not a replacement.
 
   Groups:
-    cleanup       steps 1–8    remove junk + fix config integrity
-    instructions  steps 12–17  audit the rules + descriptions that load every session
+    cleanup       steps 1–8,19 remove junk + fix config integrity
+    instructions  steps 12–18  audit the rules + descriptions that load every session
     claude.md     step  9      the global CLAUDE.md + its AGENTS.md bridge
     soul.md       step 10      migrate a legacy SOUL.md into auto-memory, then retire it
     summary       step 11      always runs last; shows what changed + how to undo
@@ -101,6 +114,7 @@ Routing:
     claude-tuneup claude.md soul.md  → combine groups
     claude-tuneup restore            → undo a previous run from a backup
     claude-tuneup --dry-run          → scan + report what would change, touch nothing
+    claude-tuneup --all              → also re-ask everything you kept in earlier runs
     claude-tuneup help               → show this card
 
   A full run waits ~6 min on /doctor up front, and asks before spending another 6 to verify.
@@ -115,7 +129,9 @@ Routing:
   4. **Warn before applying.** A restore copies *old* configs back over the current ones. `.claude.json` carries live state (projects, session pointers) — so restoring it can drop projects/sessions created **after** the backup. Say this explicitly and confirm. The script protects you two ways: it first saves the **current** configs into a `pre-restore-…` folder (so the restore is itself reversible), and it never overwrites a newer item that re-took a removed path (those land at `<path>.restored-<ts>` instead).
   5. Apply: `node "$SKILL_DIR/scripts/restore.mjs" apply <RP> [--configs-only|--items-only]` — prints `restored`, `collisions` (items that couldn't take their original path and where they went), `preRestoreSnapshot` (the pre-restore safety copy, when configs were restored), and `manualReAdd` (marketplaces/plugins for you to replay).
   6. Validate restored JSON: `node "$SKILL_DIR/scripts/validate-json.mjs" ~/.claude.json ~/.claude/settings.json`. Report `collisions` to the dev so they resolve any `.restored-<ts>` items by hand. Offer to keep or purge the restore point + the pre-restore snapshot afterward.
-- **`--dry-run`** → run every read-only step in **report mode**: scan, show what would be removed/consolidated/changed, include sizes, but **ask zero delete questions** and touch nothing — and that includes STEP 0.5: a dry run changes nothing, so do **NOT** create a restore point (it would only litter `~/.claude-tuneup/backups/` with empty entries). Skip stash/move/rm entirely. STEP 0.6 still makes its opening calls (they only read); the closing `/doctor` pass never runs. Report "DRY RUN — nothing was changed" in the summary. **This is the best first contact with the tool** — suggest it to anyone running claude-tuneup for the first time.
+  7. Retire that run's decisions: `node "$SKILL_DIR/scripts/ledger.mjs" revert-run <run-id>`. Undoing a run un-decides it — leaving the verdicts in place would keep suppressing questions about changes that no longer exist. The ledger itself survives (it lives beside the backups, not inside them), so every *other* run's decisions stand.
+- **`--dry-run`** → run every read-only step in **report mode**: scan, show what would be removed/consolidated/changed, include sizes, but **ask zero delete questions** and touch nothing — and that includes STEP 0.5: a dry run changes nothing, so do **NOT** create a restore point (it would only litter `~/.claude-tuneup/backups/` with empty entries). Skip stash/move/rm entirely. STEP 0.6 still makes its opening calls (they only read); the closing `/doctor` pass never runs. Report "DRY RUN — nothing was changed" in the summary. A dry run also records **nothing** in the ledger — no `decide`, no `record-run` — though it still reads `trend` and `check`, so its report reflects what you'd actually be asked. **This is the best first contact with the tool** — suggest it to anyone running claude-tuneup for the first time.
+- **`--all`** (aliases: `reset`, "review everything again") → run normally but **ignore the ledger's `declined` list**, re-asking items the dev kept in earlier runs. Nothing else changes; decisions from this run are still recorded. Offer it whenever the collapsed "N items you asked me to keep" line is what the dev seems to be asking about.
 - **Argument given** (a group/steps) → run exactly that. Accept group names (`cleanup`, `instructions`, `claude.md`, `soul.md`, `summary`), step numbers, or ranges (`1-3`, `step 5`, `6,7`, `12-17`). Then run STEP 11. Be lenient on aliases (`audit`/`rules` → `instructions`, `insights` → `instructions`, `soul` → `soul.md`).
 - **No argument** → **run everything.** Don't offer a menu; a bare `claude-tuneup` means the full tune-up. Say what's about to happen, including the `/doctor` wait, then start. Nothing is deleted or edited without its own confirmation, so a full run is safe by construction.
 
@@ -127,11 +143,11 @@ Diagnose → subtract → reorganize → add. Step numbers are historical; **thi
 
 | Order | Steps | |
 |---|---|---|
-| 1 | 0, 0.5 | routing, version nudge, restore point |
+| 1 | 0, 0.5 | routing, version nudge, regrowth trend, restore point |
 | 2 | 0.6 | `/doctor` **and** `/insights`, both headless, both fired here |
-| 3 | 1–8 | cleanup — disk, integrity, dead config |
+| 3 | 1–8, 19 | cleanup — disk, integrity, dead config, `settings.json` semantics |
 | 4 | 12, 13, 14 | subtract: rules→judgment, harness conflicts, cross-layer duplication |
-| 5 | 9, 15, 16 | reorganize: global file + AGENTS.md bridge, descriptions, restructure |
+| 5 | 9, 15, 16, 18 | reorganize: global file + AGENTS.md bridge, descriptions, restructure, inert surfaces |
 | 6 | 10 | `SOUL.md` retirement |
 | 7 | 17 | add: skills for workflows nobody wrote down |
 | 8 | 11 | summary, optionally preceded by a second `/doctor` pass |
@@ -239,6 +255,15 @@ call), duplicates removed, descriptions rewritten, skills created, and whether `
 - Recover a single removed item by hand: it's in `$RP/removed/` — move it back.
 - Re-add a marketplace/plugin: see the exact command in `$RP/actions.log`.
 - Self-regenerating artifacts (venvs/caches) weren't backed up — they rebuild on next use.
+
+**Write the run down.** So the next tune-up is quiet where it should be:
+
+```bash
+node "$SKILL_DIR/scripts/ledger.mjs" decide "$KEY" <keep|applied|deleted> --run <run-id>   # per decision
+node "$SKILL_DIR/scripts/ledger.mjs" record-run --groups <groups> --changes <n> --id <run-id>
+```
+
+Record **every** decision, including the keeps — a keep is the one that saves the dev from being asked twice. Use the restore point's run id so `restore` can revert the decisions along with the files. Skip both on a dry run; there is nothing to remember.
 
 Then, via AskUserQuestion, ask if the result looks good:
 - **"Looks good — purge restore point"** → `rm -rf $RP` (frees the space held by removed items).

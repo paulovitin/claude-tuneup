@@ -11,6 +11,57 @@ take a **major** bump.
 
 ## [Unreleased]
 
+The v5 pivot said the tool audits *what loads into every session*. It read three of those
+surfaces. This closes the gap, and makes a second run cheap enough to be worth doing.
+
+### Added
+
+- **Slash commands, output styles and plugin-bundled components are now audited.**
+  `audit-instructions.mjs --surfaces` walks `~/.claude/commands/**` (namespaced by
+  directory, so `commands/git/commit.md` is `git:commit`), `~/.claude/output-styles/`,
+  and any skills/agents/commands a plugin ships. Steps 14 and 15 cover them; plugin
+  components are report-only, because the action there is uninstalling the plugin.
+- **Residency is labelled instead of assumed.** Each surface carries
+  `residency: confirmed | inferred | none`, and totals are split
+  (`approxResidentTokens` vs `approxResidentTokensInferred`) so a verified cost is
+  never blended with a guess. Only the *active* output style is resident, and it costs
+  its body, not its description — an unselected one is clutter, not spend.
+- **STEP 18 — surfaces that are installed but inert.** Unselected output styles,
+  never-used agents, commands duplicating a skill, unreadable frontmatter. It refuses to
+  read a missing usage counter as zero usage.
+- **STEP 19 — `settings.json` semantics.** New `scan.mjs --section settings`: permission
+  rules naming directories that no longer exist, rules duplicated within a list or across
+  both files, the same rule both allowed and denied, `statusLine`/hook commands pointing
+  at deleted scripts, credential-looking `env` var **names**, a configured `outputStyle`
+  matching no file, and unrecognized top-level keys. Unknown keys are reported and never
+  proposed for removal — the key list is hand-maintained and a newer Claude Code is the
+  likelier explanation.
+- **`ledger.mjs` — memory across runs.** Records what the dev decided so a second tune-up
+  stops re-proposing it, and tracks resident tokens per run so regrowth surfaces at
+  STEP 0. Decision keys are content-addressed: rewriting a rule reopens it, because the
+  dev never approved the new wording. New `--all` re-asks everything anyway. The ledger
+  stores paths, hashes and verdicts — **never the dev's instruction text** — and lives
+  beside the backups so a `restore` can't erase it (`restore` calls `revert-run` to drop
+  just that run's decisions).
+- `scan.mjs --section usage` now reports `agentUsage` and `pluginUsage`, plus
+  `countersPresent` so "used zero times" is distinguishable from "we can't see usage".
+
+### Fixed
+
+- **`~/.claude/.credentials.json` no longer routes through the ask-the-dev flow.** It fell
+  through to `class: 'unknown'`, which STEP 7 inspects and asks about — so every run
+  prompted the dev about their own OAuth tokens. Now classed `secret-never-touch`: never
+  read, never offered as a decision. `keybindings.json` joins `config-keep` for the same
+  reason.
+- `insights.mjs` had no test of any kind, despite carrying the recursion guard that exists
+  because it could spawn itself. Refactored to the exported shape `doctor.mjs` was modelled
+  on and covered: the guard, cache TTL, the empty-parse-is-never-cached rule, and a missing
+  `claude` binary (which now reports a reason instead of a timeout message).
+- Repo documentation drift: `CLAUDE.md` described 10 steps and three playbooks against the
+  17 steps and five references actually shipping; `scan.mjs`'s header comment omitted
+  `memory`; `tools/changelog-section.mjs` still pointed at its pre-move path; the two
+  tickets and the modernization plan in `tasks/` read as open work.
+
 ## [5.0.0] - 2026-07-25
 
 A deliberate version jump. claude-tuneup stops being an install

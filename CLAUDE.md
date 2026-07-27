@@ -24,7 +24,18 @@ CLAUDE_TUNEUP_HOME=/tmp/fakehome node skills/claude-tuneup/scripts/scan.mjs --se
 
 Two layers, deliberately split:
 
-- **`SKILL.md` + `references/*.md`** — the judgment layer the agent reads. `SKILL.md` holds routing, the UX contract, and safety rules (loads on trigger). Per-group playbooks (`cleanup.md` steps 1–8, `claude-md.md` step 9, `soul-md.md` step 10) load **only when that group runs** — token hygiene the skill also enforces on the user's `CLAUDE.md`. The agent decides (classify, ask, delete/keep); scripts only gather and apply.
+- **`SKILL.md` + `references/*.md`** — the judgment layer the agent reads. `SKILL.md` holds routing, the UX contract, and safety rules (loads on trigger). Per-group playbooks load **only when that group runs** — token hygiene the skill also enforces on the user's `CLAUDE.md`. The agent decides (classify, ask, delete/keep); scripts only gather and apply.
+
+  | Playbook | Group | Steps |
+  |---|---|---|
+  | `cleanup.md` | cleanup | 1–8, 19 |
+  | `instructions.md` | instructions | 12–18 |
+  | `claude-md.md` | claude.md | 9 |
+  | `soul-md.md` | soul.md | 10 |
+  | `harness-invariants.md` | — | second-level, loaded by `instructions.md` for step 13 |
+
+  Steps are numbered by history, not running order; `SKILL.md` holds the running order and step 11 (summary). Numbers are never reused — a retired step's number stays retired.
+
 - **`scripts/*.mjs`** — deterministic, cross-OS (macOS/Windows/Linux), Node built-ins only; `lib.mjs` is the shared core everything imports. `SKILL.md` documents each script and its flags — that is the source of truth, so don't restate it here.
 
 ### Invariants — do not break these
@@ -35,6 +46,9 @@ Two layers, deliberately split:
 - **Move, never `rm`, anything irreplaceable** (`lib.move()` — rename with verified cross-device copy fallback). Hard `rm` is only OK for self-regenerating caches (venvs, statsig). `SESSION_HISTORY` dirs (transcripts, todos, sessions) are never bulk-deleted.
 - **Snapshots are chmod-restricted owner-only** — `.claude.json` can carry tokens.
 - **Trust scan flags over names.** Items are classified by traits (size/age/broken-link/transport), not hardcoded names. If `plugins.listingReliable` is false, never propose uninstalls from the listing (format-drift fuse).
+- **Never read `.credentials.json`, and never print an env value.** Scans emit credential-looking env var *names* only (`secretHints`, `envSecretHints`); `.credentials.json` is classed `secret-never-touch` and is skipped without being opened.
+- **A claim about the harness carries an evidence label.** `confirmed` vs `inferred` in `harness-invariants.md` and in `--surfaces` `residency`. Never fold inferred cost into a confirmed total — `approxResidentTokens` and `approxResidentTokensInferred` stay separate for that reason.
+- **The ledger stores hashes, never the user's text**, and lives beside the backups (`~/.claude-tuneup/ledger.json`) so a restore can't erase it. Decision keys are content-addressed: rewriting a rule reopens it.
 - `CLAUDE_TUNEUP_HOME` overrides `HOME` for every script — the entire test suite relies on it. Anything reading the install must route through `lib.mjs` constants, not `os.homedir()` directly.
 
 ## Releasing

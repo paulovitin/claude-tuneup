@@ -254,3 +254,88 @@ test('AGENTS.md is snapshotted and restored like the other configs', () => {
   assert.equal(fs.readFileSync(agents, 'utf8'), '# shared truth v1\n');
   fs.rmSync(home, { recursive: true, force: true });
 });
+
+// --- v5.1: resident surfaces, settings semantics, cross-run ledger ---
+
+test('a full install scan never routes the credential store into the ask-the-dev flow', () => {
+  const home = makeHome();
+  const claude = path.join(home, '.claude');
+  fs.writeFileSync(path.join(claude, '.credentials.json'), JSON.stringify({ token: 'oauth-secret-value' }));
+  fs.writeFileSync(path.join(claude, 'keybindings.json'), JSON.stringify({ bindings: [] }));
+
+  // Every section at once, exactly as a `--dry-run` would gather it.
+  const all = run(home, 'scan.mjs');
+  assert.equal(all.includes('oauth-secret-value'), false, 'a credential value must never enter the scan output');
+
+  const { rootFiles } = JSON.parse(all);
+  const credentials = rootFiles.find((f) => f.name === '.credentials.json');
+  assert.equal(credentials.class, 'secret-never-touch');
+  assert.equal(rootFiles.find((f) => f.name === 'keybindings.json').class, 'config-keep');
+  assert.equal(rootFiles.some((f) => f.class === 'unknown'), false,
+    'nothing in a stock install should reach STEP 7 as unidentifiable');
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('surfaces and settings agree about which output style is actually loaded', () => {
+  const home = makeHome();
+  const claude = path.join(home, '.claude');
+  fs.mkdirSync(path.join(claude, 'output-styles'), { recursive: true });
+  fs.writeFileSync(path.join(claude, 'output-styles', 'terse.md'),
+    '---\nname: terse\ndescription: short\n---\nBe brief.\n');
+  fs.mkdirSync(path.join(claude, 'commands', 'git'), { recursive: true });
+  fs.writeFileSync(path.join(claude, 'commands', 'git', 'commit.md'),
+    '---\ndescription: commit the staged diff\n---\nbody\n');
+  fs.writeFileSync(path.join(claude, 'settings.json'), JSON.stringify({ outputStyle: 'terse' }));
+
+  const surfaces = runJSON(home, 'audit-instructions.mjs', '--surfaces');
+  const { settings } = runJSON(home, 'scan.mjs', '--section', 'settings');
+
+  assert.equal(surfaces.activeOutputStyle, 'terse');
+  assert.equal(settings.outputStyle.matchesCustom, true);
+  assert.deepEqual(settings.outputStyle.customAvailable, ['terse']);
+  assert.ok(surfaces.surfaces.some((s) => s.kind === 'command' && s.name === 'git:commit'));
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('settings scan flags a statusLine pointing at a script that was deleted', () => {
+  const home = makeHome();
+  const claude = path.join(home, '.claude');
+  const script = path.join(claude, 'statusline.sh');
+  fs.writeFileSync(path.join(claude, 'settings.json'), JSON.stringify({
+    statusLine: { type: 'command', command: script },
+  }));
+
+  fs.writeFileSync(script, '#!/bin/sh\n');
+  let { settings } = runJSON(home, 'scan.mjs', '--section', 'settings');
+  assert.deepEqual(settings.brokenPaths, [], 'a script that exists is not a finding');
+
+  fs.rmSync(script);
+  ({ settings } = runJSON(home, 'scan.mjs', '--section', 'settings'));
+  assert.deepEqual(settings.brokenPaths, [
+    { file: 'settings.json', where: 'statusLine.command', missing: script },
+  ]);
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('the ledger survives a restore, because undo must not erase what the dev decided', () => {
+  const home = makeHome();
+  const state = path.join(home, '.claude-tuneup');
+  const ledgerRun = (...args) => JSON.parse(execFileSync(process.execPath,
+    [path.join(SCRIPTS, 'ledger.mjs'), ...args],
+    { encoding: 'utf8', env: { ...process.env, CLAUDE_TUNEUP_HOME: home, CLAUDE_TUNEUP_STATE: state } }));
+
+  const { key } = ledgerRun('key', 'rule', path.join(home, '.claude', 'CLAUDE.md'), 'keep my absolute');
+  ledgerRun('decide', key, 'keep', '--run', 'r1');
+
+  // A real restore point, then a real restore over it.
+  const rp = execFileSync(process.execPath, [path.join(SCRIPTS, 'backup.mjs'), 'create'],
+    { encoding: 'utf8', env: { ...process.env, CLAUDE_TUNEUP_HOME: home, CLAUDE_TUNEUP_STATE: state } }).trim();
+  fs.writeFileSync(path.join(home, '.claude', 'CLAUDE.md'), '# edited\n');
+  execFileSync(process.execPath, [path.join(SCRIPTS, 'restore.mjs'), 'apply', rp],
+    { encoding: 'utf8', env: { ...process.env, CLAUDE_TUNEUP_HOME: home, CLAUDE_TUNEUP_STATE: state } });
+
+  assert.equal(fs.readFileSync(path.join(home, '.claude', 'CLAUDE.md'), 'utf8'), '# v1\n');
+  assert.deepEqual(ledgerRun('check', key).declined, [key],
+    'the ledger lives outside the backups and must outlive a restore');
+  fs.rmSync(home, { recursive: true, force: true });
+});
