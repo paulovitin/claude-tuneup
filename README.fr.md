@@ -43,7 +43,7 @@ mieux. Continuez à lire.
 ## 🧐 « Vous voulez réécrire des règles que *J'AI* écrites ? »
 
 **Non — il veut *proposer*, et vous seul tenez le stylo.** Le groupe `instructions` (étapes
-12–16) ne modifie jamais une règle de lui-même. Il montre la ligne d'origine, la réécriture
+12–18) ne modifie jamais une règle de lui-même. Il montre la ligne d'origine, la réécriture
 suggérée et la raison, et ne change rien tant que vous n'avez pas appuyé sur un bouton :
 
 ```text
@@ -140,6 +140,11 @@ conservés **hors** du répertoire de la skill pour qu'une mise à jour ou une r
 puisse pas effacer votre historique d'annulation (surchargez avec `$CLAUDE_TUNEUP_STATE`). Les
 snapshots sont réservés au propriétaire, car `.claude.json` peut contenir des tokens.
 
+Une exécution *ajoute* autant qu’elle retranche, et l’annulation inverse désormais les deux : les
+skills écrites pour vous pendant un run sont enregistrées et retirées lors d’une restauration
+complète — *déplacées* vers `undone-creations/`, pas supprimées, car vous en avez peut-être
+modifié une depuis.
+
 > **« Et la restauration elle-même, peut-elle casser quelque chose ? »**
 > Elle est paranoïaque aussi. Avant de revenir en arrière, elle photographie vos configs
 > *actuelles* dans un dossier `pre-restore-…` — même l'annulation est donc annulable — et elle
@@ -227,6 +232,7 @@ claude-tuneup claude.md soul.md  # combine des groupes
 claude-tuneup --dry-run          # scanne + rapporte ce qui changerait, sans rien toucher
 claude-tuneup help               # liste les groupes + déclencheurs
 claude-tuneup restore            # annule une exécution précédente (complète, ou configs/éléments seuls)
+claude-tuneup fix                # « X ne marche plus » : retrouve l’exécution responsable et restaure juste ça
 ```
 
 **Première fois ? Commencez par `--dry-run`** — il montre tout ce qu'il *ferait* et ne touche à
@@ -236,11 +242,11 @@ une heure — alors prévoyez l'attente du `/doctor`.)
 
 | Groupe | Étapes | Ce qu'il fait |
 | -------------------- | ------ | ------------- |
-| 🧹 **`cleanup`**      | 1–8    | Supprime les déchets + répare l'intégrité des configs — skills, plugins, hooks, MCPs, projets, répertoires d'état, fichiers racine, `.claude.json` global |
-| 📝 **`instructions`** | 12–17  | Audite ce qui se charge à chaque session : règles qui devraient être du discernement, instructions qui luttent contre le runtime, la même règle à quatre endroits, descriptions qui routent mal, et workflows que vous répétez sans jamais les avoir écrits |
-| 📄 **`claude.md`**    | 9      | Votre `CLAUDE.md` global + le pont `AGENTS.md` *(pour le `CLAUDE.md` versionné d'un projet, lancez `/doctor` — il le fait mieux)* |
-| ♻️ **`soul.md`**      | 10     | Migre un `SOUL.md` hérité vers l'auto-mémoire de Claude, puis le retire |
-| 📊 **`summary`**      | 11     | Rapport final de ce qui a changé + comment annuler *(passe toujours en dernier)* |
+| 🧹 **`cleanup`**      | 1–8, 19 | Supprime les déchets + répare l'intégrité des configs — skills, plugins, hooks, MCPs, projets, répertoires d'état, fichiers racine, `.claude.json` global, et ce que le `settings.json` dit vraiment — chemins morts, règles de permission qui se contredisent |
+| 📝 **`instructions`** | 12–18   | Audite chaque surface qui se charge à chaque session — règles, descriptions de skills et d’agents, slash commands, output styles, composants de plugins : règles qui devraient être du discernement, instructions qui luttent contre le runtime, la même règle à quatre endroits, descriptions qui routent mal, et workflows que vous répétez sans jamais les avoir écrits |
+| 📄 **`claude.md`**    | 9       | Votre `CLAUDE.md` global + le pont `AGENTS.md` *(pour le `CLAUDE.md` versionné d'un projet, lancez `/doctor` — il le fait mieux)* |
+| ♻️ **`soul.md`**      | 10      | Migre un `SOUL.md` hérité vers l'auto-mémoire de Claude, puis le retire |
+| 📊 **`summary`**      | 11      | Rapport final de ce qui a changé + comment annuler *(passe toujours en dernier)* |
 
 Sans argument, tout s'exécute. Les numéros d'étapes sont historiques ; l'ordre d'exécution est
 diagnostiquer → soustraire → réorganiser → ajouter.
@@ -263,15 +269,16 @@ skills/claude-tuneup/
 ├─ SKILL.md               # routage + contrat UX + règles de sécurité (léger — chargé au déclenchement)
 ├─ VERSION                # version livrée de la skill (alimente le rappel de mise à jour)
 ├─ references/            # playbooks par groupe, chargés seulement quand ce groupe s'exécute
-│  ├─ cleanup.md          #   étapes 1–8
-│  ├─ instructions.md     #   étapes 12–17
+│  ├─ cleanup.md          #   étapes 1–8, 19
+│  ├─ instructions.md     #   étapes 12–18
 │  ├─ harness-invariants.md  # ce que le runtime fait déjà (la liste de l'étape 13)
 │  ├─ claude-md.md        #   étape 9
 │  └─ soul-md.md          #   étape 10
 └─ scripts/               # déterministes, multi-OS (collecter & appliquer)
    ├─ scan.mjs            # découverte en lecture seule → JSON (--section pour une seule tranche)
    ├─ backup.mjs          # point de restauration + snapshot + stash
-   ├─ restore.mjs         # lister / appliquer (complet, --configs-only, --items-only)
+   ├─ restore.mjs         # lister / chercher / appliquer (complet, configs, items, ou un seul --only <chemin>)
+   ├─ ledger.mjs          # ce que vous avez décidé au run précédent, pour ne pas redemander (jamais le contenu des fichiers)
    ├─ doctor.mjs          # exécute le /doctor intégré en headless, rapport-seulement (cache 1h)
    ├─ insights.mjs        # exécute /insights en headless (cache 1h ; --no-cache)
    ├─ audit-instructions.mjs  # signaux d'instructions + descriptions résidentes → JSON

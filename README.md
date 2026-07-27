@@ -53,7 +53,7 @@ is [down here](#-fine-what-am-i-typing). Not convinced? Better. Keep reading.
 
 ## 🧐 "You want to rewrite rules that *I* wrote?"
 
-**No — it wants to *propose*, and you hold the only pen.** The `instructions` group (steps 12–16)
+**No — it wants to *propose*, and you hold the only pen.** The `instructions` group (steps 12–18)
 never edits a rule on its own. It shows the original line, the suggested rewrite, and the reason,
 and changes nothing until you pick a button:
 
@@ -142,6 +142,10 @@ claude-tuneup restore    # pick the restore point → full, configs-only, or ite
 or reinstall can't wipe your undo history (override with `$CLAUDE_TUNEUP_STATE`). Snapshots are
 owner-only, because `.claude.json` can carry tokens.
 
+A run *adds* as well as subtracts, and undo now reverses both: skills written for you during a
+run are recorded and taken back out on a full restore — *moved* into `undone-creations/`, not
+deleted, since you may have edited one since.
+
 > **"Can the restore itself break something?"**
 > It's paranoid too. Before rolling back, it snapshots your *current* configs into a
 > `pre-restore-…` folder — so even undoing is undoable — and it never overwrites a newer item
@@ -223,6 +227,7 @@ claude-tuneup claude.md soul.md  # combine groups
 claude-tuneup --dry-run          # scan + report what would change, touch nothing
 claude-tuneup help               # list groups + triggers
 claude-tuneup restore            # undo a previous run (fully, or configs/items only)
+claude-tuneup fix                # "X stopped working": trace which run did it, put back just that
 ```
 
 **First time? Start with `--dry-run`** — it shows everything it *would* do and touches nothing.
@@ -231,11 +236,11 @@ and `/insights`, both read-only and cached for an hour — so budget the `/docto
 
 | Group | Steps | What it does |
 | -------------------- | ------ | ------------- |
-| 🧹 **`cleanup`**      | 1–8    | Remove junk + fix config integrity — skills, plugins, hooks, MCPs, projects, state dirs, root files, global `.claude.json` |
-| 📝 **`instructions`** | 12–17  | Audit what loads every session: rules that should be judgment, instructions that fight the runtime, the same rule in four places, descriptions that route badly, and workflows you repeat but never wrote down |
-| 📄 **`claude.md`**    | 9      | Your global `CLAUDE.md` + the `AGENTS.md` bridge *(for a project's checked-in `CLAUDE.md`, run `/doctor` — it does that better)* |
-| ♻️ **`soul.md`**      | 10     | Migrate a legacy `SOUL.md` into Claude's auto-memory, then retire it |
-| 📊 **`summary`**      | 11     | Final report of what changed + how to undo *(always runs last)* |
+| 🧹 **`cleanup`**      | 1–8, 19 | Remove junk + fix config integrity — skills, plugins, hooks, MCPs, projects, state dirs, root files, global `.claude.json`, and what `settings.json` actually says — dead paths, permission rules that contradict each other |
+| 📝 **`instructions`** | 12–18   | Audit every surface that loads each session — rules, skill and agent descriptions, slash commands, output styles, plugin-bundled components: rules that should be judgment, instructions that fight the runtime, the same rule in four places, descriptions that route badly, and workflows you repeat but never wrote down |
+| 📄 **`claude.md`**    | 9       | Your global `CLAUDE.md` + the `AGENTS.md` bridge *(for a project's checked-in `CLAUDE.md`, run `/doctor` — it does that better)* |
+| ♻️ **`soul.md`**      | 10      | Migrate a legacy `SOUL.md` into Claude's auto-memory, then retire it |
+| 📊 **`summary`**      | 11      | Final report of what changed + how to undo *(always runs last)* |
 
 No argument runs everything. Step numbers are historical; the run order is
 diagnose → subtract → reorganize → add.
@@ -257,15 +262,16 @@ skills/claude-tuneup/
 ├─ SKILL.md               # routing + UX contract + safety rules (lean — loads on trigger)
 ├─ VERSION                # shipped skill version (drives the update nudge)
 ├─ references/            # per-group playbooks, loaded only when that group runs
-│  ├─ cleanup.md          #   steps 1–8
-│  ├─ instructions.md     #   steps 12–17
+│  ├─ cleanup.md          #   steps 1–8, 19
+│  ├─ instructions.md     #   steps 12–18
 │  ├─ harness-invariants.md  # what the runtime already does (step 13's list)
 │  ├─ claude-md.md        #   step 9
 │  └─ soul-md.md          #   step 10
 └─ scripts/               # deterministic, cross-OS (gather & apply)
    ├─ scan.mjs            # read-only discovery → JSON (--section for just one slice)
    ├─ backup.mjs          # restore point + snapshot + stash
-   ├─ restore.mjs         # list / apply (full, --configs-only, --items-only)
+   ├─ restore.mjs         # list / search / apply (full, configs, items, or one --only <path>)
+   ├─ ledger.mjs          # what you decided last run, so a re-run does not re-ask (never file contents)
    ├─ doctor.mjs          # run the built-in /doctor headless, report-only (cached 1h)
    ├─ insights.mjs        # run /insights headless (cached 1h; --no-cache)
    ├─ audit-instructions.mjs  # instruction signals + resident descriptions → JSON

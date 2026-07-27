@@ -35,7 +35,7 @@ AI Agent 会审查**每次会话**加载的指令规则 — 并同步清理磁�
 
 ## 🧐 "你想改写*我*亲手写的规则？"
 
-**不 — 它只想*提议*，笔始终在你手里。** `instructions` 组（步骤 12–16）从不擅自编辑任何规则。它会展示原始行、建议的改写和理由，在你按下按钮之前什么都不会改变：
+**不 — 它只想*提议*，笔始终在你手里。** `instructions` 组（步骤 12–18）从不擅自编辑任何规则。它会展示原始行、建议的改写和理由，在你按下按钮之前什么都不会改变：
 
 ```text
 > claude-tuneup
@@ -106,6 +106,8 @@ claude-tuneup restore    # 选择还原点 → 全部还原、仅配置或仅项
 
 **每次运行都是一个还原点。** 配置会做快照，被移除的项目是被*移动* — 绝非 `rm` — 到 `~/.claude-tuneup/backups/<run-id>/`，保存在技能目录**之外**，这样更新或重装都不会抹掉你的撤销历史（可用 `$CLAUDE_TUNEUP_STATE` 覆盖）。快照仅属主可读，因为 `.claude.json` 可能带有 token。
 
+一次运行不只做减法，也做*加法*，而撤销现在两者都会还原：运行期间为你写下的技能会被记录，并在完整还原时移除 —— 是*移动*到 `undone-creations/`，不是删除，因为你可能已经改过它。
+
 > **"还原本身会不会搞坏什么？"**
 > 它同样偏执。回滚前，它会先把你*当前*的配置快照到 `pre-restore-…` 文件夹 — 也就是说连撤销都可以撤销 — 并且绝不覆盖重新占用了已删除路径的新项目：冲突会落在 `<路径>.restored-<ts>` 并被报告。
 
@@ -166,6 +168,7 @@ claude-tuneup claude.md soul.md  # 组合多个组
 claude-tuneup --dry-run          # 扫描 + 报告将会发生的更改，不碰任何东西
 claude-tuneup help               # 列出组 + 触发词
 claude-tuneup restore            # 撤销之前的运行（全部，或仅配置/项目）
+claude-tuneup fix                # “X 不工作了”：追溯是哪次运行造成的，只还原那一项
 ```
 
 **第一次用？从 `--dry-run` 开始** — 它展示所有*将会*做的事，但什么都不碰。
@@ -173,11 +176,11 @@ claude-tuneup restore            # 撤销之前的运行（全部，或仅配置
 
 | 组 | 步骤 | 作用 |
 | -------------------- | ------ | ------------- |
-| 🧹 **`cleanup`**      | 1–8    | 清除垃圾 + 修复配置完整性 — 技能、插件、钩子、MCP、项目、状态目录、根文件、全局 `.claude.json` |
-| 📝 **`instructions`** | 12–17  | 审查每次会话加载的内容：应交给判断力的规则、和运行时对着干的指令、出现在四个地方的同一条规则、路由混乱的描述、以及你反复执行却从未写下的工作流 |
-| 📄 **`claude.md`**    | 9      | 你的全局 `CLAUDE.md` + `AGENTS.md` 桥接 *(项目内已提交的 `CLAUDE.md` 请交给 `/doctor` — 它做得更好)* |
-| ♻️ **`soul.md`**      | 10     | 将遗留的 `SOUL.md` 迁移进 Claude 的自动记忆，然后让它退役 |
-| 📊 **`summary`**      | 11     | 变更内容 + 撤销方式的最终报告 *(总是最后运行)* |
+| 🧹 **`cleanup`**      | 1–8, 19 | 清除垃圾 + 修复配置完整性 — 技能、插件、钩子、MCP、项目、状态目录、根文件、全局 `.claude.json`，以及 `settings.json` 实际在说什么 — 失效路径、彼此矛盾的权限规则 |
+| 📝 **`instructions`** | 12–18   | 审查每次会话加载的每个界面 — 规则、技能与 agent 描述、斜杠命令、output styles、插件自带组件：应交给判断力的规则、和运行时对着干的指令、出现在四个地方的同一条规则、路由混乱的描述、以及你反复执行却从未写下的工作流 |
+| 📄 **`claude.md`**    | 9       | 你的全局 `CLAUDE.md` + `AGENTS.md` 桥接 *(项目内已提交的 `CLAUDE.md` 请交给 `/doctor` — 它做得更好)* |
+| ♻️ **`soul.md`**      | 10      | 将遗留的 `SOUL.md` 迁移进 Claude 的自动记忆，然后让它退役 |
+| 📊 **`summary`**      | 11      | 变更内容 + 撤销方式的最终报告 *(总是最后运行)* |
 
 不带参数则运行全部。步骤编号是历史遗留；实际执行顺序是：诊断 → 精简 → 重组 → 添加。
 
@@ -194,15 +197,16 @@ skills/claude-tuneup/
 ├─ SKILL.md               # 路由 + UX 契约 + 安全规则（精简 — 触发时加载）
 ├─ VERSION                # 发布的技能版本（驱动更新提醒）
 ├─ references/            # 按组划分的手册，仅在该组运行时加载
-│  ├─ cleanup.md          #   步骤 1–8
-│  ├─ instructions.md     #   步骤 12–17
+│  ├─ cleanup.md          #   步骤 1–8, 19
+│  ├─ instructions.md     #   步骤 12–18
 │  ├─ harness-invariants.md  # 运行时已经做了什么（步骤 13 的清单）
 │  ├─ claude-md.md        #   步骤 9
 │  └─ soul-md.md          #   步骤 10
 └─ scripts/               # 确定性、跨系统（收集 & 执行）
    ├─ scan.mjs            # 只读探测 → JSON（--section 只取一个切片）
    ├─ backup.mjs          # 还原点 + 快照 + 暂存
-   ├─ restore.mjs         # 列出 / 应用（全部、--configs-only、--items-only）
+   ├─ restore.mjs         # 列出 / 搜索 / 应用（全部、configs、items，或用 --only <路径> 只还原一项）
+   ├─ ledger.mjs          # 上次运行你做的决定，避免重复询问（绝不保存文件内容）
    ├─ doctor.mjs          # 无界面运行内置 /doctor，仅报告（缓存 1 小时）
    ├─ insights.mjs        # 无界面运行 /insights（缓存 1 小时; --no-cache）
    ├─ audit-instructions.mjs  # 指令信号 + 常驻描述 → JSON
