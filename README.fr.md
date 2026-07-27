@@ -95,6 +95,30 @@ exécutez entre dans le contexte — la même discipline de tokens qu'elle impos
 
 ---
 
+## 🔁 « Donc chaque exécution me repose les mêmes questions ? »
+
+**Elle n'avait aucun moyen de faire autrement — rien ne persistait entre les exécutions.** Le
+deuxième tune-up arrivait sans mémoire du premier : les mêmes règles signalées, les mêmes refus,
+les mêmes réponses. Désormais ce que vous avez décidé est enregistré, et une nouvelle exécution
+s'ouvre sur une ligne plutôt que sur un procès en révision :
+
+```text
+> claude-tuneup
+
+Le contexte résident a augmenté d'environ 380 tokens depuis le dernier tune-up (2026-06-14).
+3 éléments que vous aviez demandé de garder — ignorés. (`--all` les repasse en revue.)
+```
+
+- **Une règle que vous avez réécrite revient.** Les clés hachent le *texte*, pas le chemin — une
+  règle réécrite est donc reproposée, et à juste titre : vous n'avez jamais approuvé cette
+  formulation. Reformater un paragraphe ne change rien, car les espaces sont normalisés d'abord.
+- **Rien ne disparaît en silence.** Les refus se replient sur cette seule ligne, jamais sur rien.
+- **Elle retient vos décisions, pas votre écriture.** Chemins, empreintes et verdicts — jamais le
+  contenu de vos fichiers d'instructions. Elle vit à côté des sauvegardes : annuler une exécution
+  n'efface donc pas ce que vous avez décidé dans toutes les autres.
+
+---
+
 ## 🩺 « Claude Code fournit déjà `/doctor`. Pourquoi existez-vous ? »
 
 **Parce que `/doctor` passe en premier — cet outil y tient.** `/doctor` est meilleur pour faire
@@ -150,6 +174,40 @@ modifié une depuis.
 > *actuelles* dans un dossier `pre-restore-…` — même l'annulation est donc annulable — et elle
 > n'écrase jamais un élément plus récent qui a repris un chemin supprimé : les collisions
 > atterrissent en `<chemin>.restored-<ts>` et sont signalées.
+
+---
+
+## 🔎 « Et quand ça casse trois jours plus tard, dans une autre session ? »
+
+**Ce cas a sa propre porte d'entrée.** `restore` suppose que vous savez quelle exécution annuler.
+Trois jours après, vous ne le savez pas — vous avez un symptôme, pas un identifiant :
+
+```text
+> claude-tuneup fix
+
+   « la règle que j'avais sur les commits a disparu »
+
+   2 points de restauration la mentionnent — classés, pas un verdict :
+
+   ● 2026-06-14 14:02   CLAUDE.md:14 « squash avant de pousser »   (supprimée)
+     2026-06-02 09:31   actions.log — skill « git-helper » consolidée
+
+   [ Restaurer juste ça ]   [ Voir toute l'exécution ]   [ Ni l'un ni l'autre ]
+```
+
+- **Il lit ce que chaque point de restauration contenait déjà** — chemins supprimés, journal des
+  actions, et les `CLAUDE.md`/`AGENTS.md`/`SOUL.md` figés. La preuve avait toujours été là ; il
+  manquait de quoi la relire.
+- **Une régression va dans les deux sens.** Le coupable évident est ce qui a été supprimé, mais
+  une skill que l'exécution a *créée* peut masquer une des vôtres et changer le routage sans rien
+  effacer. Les deux appellent des correctifs opposés : la direction est donc lue dans
+  l'enregistrement, jamais devinée d'après le chemin.
+- **Un seul élément revient, pas toute l'exécution** — le reste de ce tune-up reste appliqué. La
+  récupération est elle aussi enregistrée, pour que la prochaine exécution ne repropose pas
+  exactement ce qui vient de casser.
+- **Vos secrets ne sont pas cherchables.** `.claude.json` et `settings*.json` ne sont jamais lus
+  par la recherche : ils peuvent contenir des tokens, et un résultat de recherche est du texte
+  qu'il vous réaffiche.
 
 ---
 

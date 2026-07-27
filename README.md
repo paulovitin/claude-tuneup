@@ -102,6 +102,29 @@ running enters the context — the same token discipline it enforces on your `CL
 
 ---
 
+## 🔁 "So every run re-asks me the same things?"
+
+**It had no way not to — nothing persisted between runs.** A second tune-up arrived with no
+memory of the first: same flagged rules, same declines, same answers. Now what you decided is
+recorded, and a re-run opens with one line instead of a re-litigation:
+
+```text
+> claude-tuneup
+
+Resident context is up ~380 tokens since your last tune-up (2026-06-14).
+3 items you asked me to keep last time — skipped. (`--all` reviews them anyway.)
+```
+
+- **A rule you reworded comes back.** Keys hash the *text*, not the path — so a rewritten rule
+  is proposed again, correctly: you never approved that wording. Reflowing a paragraph changes
+  nothing, because whitespace is normalized first.
+- **Nothing is dropped silently.** Declines collapse into that one line, never into nothing.
+- **It remembers your decisions, not your writing.** Paths, hashes and verdicts — never the
+  contents of your instruction files. It lives beside the backups, so undoing one run can't
+  erase what you decided in all the others.
+
+---
+
 ## 🩺 "Claude Code already ships `/doctor`. Why do you exist?"
 
 **Because `/doctor` runs first — this tool insists on it.** `/doctor` is better at taking
@@ -150,6 +173,37 @@ deleted, since you may have edited one since.
 > It's paranoid too. Before rolling back, it snapshots your *current* configs into a
 > `pre-restore-…` folder — so even undoing is undoable — and it never overwrites a newer item
 > that re-took a removed path: collisions land at `<path>.restored-<ts>` and are reported.
+
+---
+
+## 🔎 "And when it breaks three days later, in another session?"
+
+**That one has its own entry point.** `restore` assumes you know which run to undo. Three days
+on you don't — you have a symptom, not a run id:
+
+```text
+> claude-tuneup fix
+
+   "the rule I had about commits is gone"
+
+   2 restore points mention it — ranked, not a verdict:
+
+   ● 2026-06-14 14:02   CLAUDE.md:14 "squash before pushing"   (removed)
+     2026-06-02 09:31   actions.log — consolidated skill "git-helper"
+
+   [ Put back just that ]   [ Show me the whole run ]   [ Neither ]
+```
+
+- **It reads what every restore point already held** — removed paths, the action log, and the
+  snapshotted `CLAUDE.md`/`AGENTS.md`/`SOUL.md`. The evidence was always there; nothing could
+  read it back to you.
+- **A regression cuts both ways.** Something removed is the obvious cause, but a skill the run
+  *created* can shadow one you had and change routing without deleting anything. The two need
+  opposite fixes, so the direction is read from the record, never inferred from the path.
+- **One item goes back, not the whole run** — the rest of that tune-up stays applied. The
+  recovery is recorded too, so the next run doesn't re-propose the very thing that just broke.
+- **Your secrets aren't searchable.** `.claude.json` and `settings*.json` are never read by the
+  search: they can carry tokens, and a search result is text it prints back to you.
 
 ---
 

@@ -91,6 +91,31 @@ contexto — a mesma disciplina de tokens que ela cobra do seu `CLAUDE.md`.
 
 ---
 
+## 🔁 "Então toda execução me pergunta as mesmas coisas de novo?"
+
+**Não tinha como não perguntar — nada persistia entre execuções.** A segunda passada chegava
+sem memória da primeira: as mesmas regras sinalizadas, as mesmas recusas, as mesmas respostas.
+Agora o que você decidiu fica registrado, e uma nova execução abre com uma linha em vez de
+reabrir a discussão:
+
+```text
+> claude-tuneup
+
+O contexto residente subiu ~380 tokens desde o último tune-up (2026-06-14).
+3 itens que você pediu para manter da última vez — pulados. (`--all` revisa mesmo assim.)
+```
+
+- **Uma regra que você reescreveu volta a aparecer.** As chaves são hash do *texto*, não do
+  caminho — então uma regra reescrita é proposta de novo, e corretamente: você nunca aprovou
+  aquela redação. Só reformatar o parágrafo não muda nada, porque o espaço em branco é
+  normalizado antes.
+- **Nada some em silêncio.** As recusas colapsam naquela única linha, nunca em nada.
+- **Ele lembra suas decisões, não sua escrita.** Caminhos, hashes e vereditos — nunca o
+  conteúdo dos seus arquivos de instrução. Fica ao lado dos backups, então desfazer uma
+  execução não apaga o que você decidiu em todas as outras.
+
+---
+
 ## 🩺 "O Claude Code já vem com o `/doctor`. Por que você existe?"
 
 **Porque o `/doctor` roda primeiro — esta ferramenta faz questão.** O `/doctor` é melhor em
@@ -141,6 +166,39 @@ você durante a execução são registradas e retiradas num restore completo —
 > Ela também é paranoica. Antes de reverter, ela fotografa suas configs *atuais* numa pasta
 > `pre-restore-…` — ou seja, até o desfazer é desfazível — e nunca sobrescreve um item mais novo
 > que reocupou um caminho removido: colisões pousam em `<caminho>.restored-<ts>` e são reportadas.
+
+---
+
+## 🔎 "E quando quebrar três dias depois, em outra sessão?"
+
+**Esse caso tem porta de entrada própria.** O `restore` pressupõe que você sabe qual execução
+desfazer. Três dias depois você não sabe — você tem um sintoma, não um id de execução:
+
+```text
+> claude-tuneup fix
+
+   "sumiu a regra que eu tinha sobre commits"
+
+   2 pontos de restauração mencionam isso — ranqueados, não um veredito:
+
+   ● 2026-06-14 14:02   CLAUDE.md:14 "squash antes de push"   (removido)
+     2026-06-02 09:31   actions.log — skill "git-helper" consolidada
+
+   [ Devolver só isso ]   [ Ver a execução inteira ]   [ Nenhum dos dois ]
+```
+
+- **Ele lê o que todo ponto de restauração já guardava** — caminhos removidos, o log de ações,
+  e os `CLAUDE.md`/`AGENTS.md`/`SOUL.md` snapshotados. A evidência sempre esteve ali; o que
+  faltava era algo que soubesse ler.
+- **Uma regressão vem dos dois lados.** O suspeito óbvio é algo removido, mas uma skill que a
+  execução *criou* pode ofuscar uma que você já tinha e mudar o roteamento sem apagar nada. Os
+  dois casos pedem correções opostas, então a direção é lida do registro, nunca deduzida do
+  caminho.
+- **Volta um item, não a execução inteira** — o resto daquele tune-up continua aplicado. A
+  recuperação também é registrada, para a próxima execução não propor de novo justamente o que
+  acabou de quebrar.
+- **Seus segredos não são pesquisáveis.** `.claude.json` e `settings*.json` nunca são lidos pela
+  busca: podem carregar tokens, e um resultado de busca é texto que ele imprime de volta pra você.
 
 ---
 
