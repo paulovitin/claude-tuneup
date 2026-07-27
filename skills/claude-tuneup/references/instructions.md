@@ -192,6 +192,10 @@ Propose the whole restructure as **one reviewable set** — before/after residen
 counts, every moved block quoted, every new skill's frontmatter shown — and apply only after
 confirmation.
 
+Every skill this step writes goes through `backup.mjs created "$RP" <path>`, same as STEP 17's —
+a block moved out of `CLAUDE.md` into a new skill is an addition as much as a subtraction, and
+undo has to be able to reverse both halves.
+
 ---
 
 ## STEP 17: Workflows you repeat but never wrote down
@@ -231,7 +235,16 @@ Then propose **a skill**. Never a `CLAUDE.md` addition:
 parser. The `report` path is still valid: read the file directly. The script deliberately doesn't
 cache an empty parse, so a later run re-tries.
 
-Record every skill created here by name — STEP 11 needs that list.
+Record every skill created here **two ways**, right after writing it:
+
+```bash
+node "$SKILL_DIR/scripts/backup.mjs" created "$RP" ~/.claude/skills/<name>
+```
+
+- In the restore point, with the command above — so `restore` can undo the addition and a later
+  `fix` can trace a regression back to it. A skill that shadows an existing one changes routing
+  without deleting anything, and nothing else in the run would record that it appeared.
+- By name in your own working list — STEP 11 and the STEP 18 filter both need it.
 
 ---
 

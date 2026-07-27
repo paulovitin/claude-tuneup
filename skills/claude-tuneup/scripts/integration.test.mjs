@@ -451,3 +451,91 @@ test('apply --only parks a collision beside the path instead of clobbering a new
   assert.equal(fs.readFileSync(path.join(result.restored, 'SKILL.md'), 'utf8'), 'original');
   fs.rmSync(home, { recursive: true, force: true });
 });
+
+// --- v5.1: a run adds as well as subtracts, and undo has to reverse both ---
+
+test('full restore undoes what the run ADDED, not just what it removed', () => {
+  const home = makeHome();
+  const claude = path.join(home, '.claude');
+  const removed = path.join(claude, 'skills', 'obsolete');
+  fs.mkdirSync(removed, { recursive: true });
+  fs.writeFileSync(path.join(removed, 'SKILL.md'), 'old');
+
+  const rp = run(home, 'backup.mjs', 'create').trim();
+  run(home, 'backup.mjs', 'stash', rp, removed);
+
+  // What STEP 17 does: writes a new skill, then records it.
+  const added = path.join(claude, 'skills', 'deploy-dance');
+  fs.mkdirSync(added, { recursive: true });
+  fs.writeFileSync(path.join(added, 'SKILL.md'), 'new skill this run wrote');
+  run(home, 'backup.mjs', 'created', rp, added);
+
+  const result = runJSON(home, 'restore.mjs', 'apply', rp);
+  assert.ok(fs.existsSync(path.join(removed, 'SKILL.md')), 'the removal is reversed');
+  assert.equal(fs.existsSync(added), false, '"undo everything" must also undo the additions');
+  assert.equal(result.undoneCreations.length, 1);
+  assert.equal(result.undoneCreations[0].created, added);
+
+  // Moved, never deleted: the dev may have edited the skill this tool wrote for them.
+  assert.equal(fs.readFileSync(path.join(result.undoneCreations[0].movedTo, 'SKILL.md'), 'utf8'),
+    'new skill this run wrote');
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('search separates what a run added from what it removed', () => {
+  const home = makeHome();
+  const claude = path.join(home, '.claude');
+  const added = path.join(claude, 'skills', 'deploy-dance');
+  fs.mkdirSync(added, { recursive: true });
+  fs.writeFileSync(path.join(added, 'SKILL.md'), 'x');
+
+  const rp = run(home, 'backup.mjs', 'create').trim();
+  run(home, 'backup.mjs', 'created', rp, added);
+
+  const found = runJSON(home, 'restore.mjs', 'search', 'deploy');
+  assert.deepEqual(found.points[0].items, [], 'nothing was removed');
+  assert.equal(found.points[0].created[0].path, added);
+  assert.equal(found.points[0].created[0].stillPresent, true);
+  // The two need opposite fixes, so the direction can never be inferred from the path.
+  assert.match(found.note, /undo takes them away/);
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('apply --only takes away a created item instead of trying to restore it', () => {
+  const home = makeHome();
+  const claude = path.join(home, '.claude');
+  const added = path.join(claude, 'skills', 'shadowing');
+  fs.mkdirSync(added, { recursive: true });
+  fs.writeFileSync(path.join(added, 'SKILL.md'), 'steals routing from an existing skill');
+
+  const rp = run(home, 'backup.mjs', 'create').trim();
+  run(home, 'backup.mjs', 'created', rp, added);
+  fs.writeFileSync(path.join(claude, 'CLAUDE.md'), '# edited by the run\n');
+
+  const result = runJSON(home, 'restore.mjs', 'apply', rp, '--only', added);
+  assert.equal(result.scope, 'single-item-creation');
+  assert.equal(fs.existsSync(added), false);
+  assert.ok(fs.existsSync(path.join(result.movedTo, 'SKILL.md')), 'recoverable, not deleted');
+  assert.equal(fs.readFileSync(path.join(claude, 'CLAUDE.md'), 'utf8'), '# edited by the run\n',
+    'the rest of the run stays applied');
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('restore list reports both directions so a dev can see what a run actually did', () => {
+  const home = makeHome();
+  const claude = path.join(home, '.claude');
+  const gone = path.join(claude, 'skills', 'old');
+  const born = path.join(claude, 'skills', 'new');
+  for (const dir of [gone, born]) {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'SKILL.md'), 'x');
+  }
+  const rp = run(home, 'backup.mjs', 'create').trim();
+  run(home, 'backup.mjs', 'stash', rp, gone);
+  run(home, 'backup.mjs', 'created', rp, born);
+
+  const entry = runJSON(home, 'restore.mjs', 'list').find((p) => p.path === rp);
+  assert.equal(entry.removedCount, 1);
+  assert.equal(entry.createdCount, 1);
+  fs.rmSync(home, { recursive: true, force: true });
+});

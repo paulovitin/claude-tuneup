@@ -55,11 +55,25 @@ surfaces. This closes the gap, and makes a second run cheap enough to be worth d
   findable too. Results are ranked by how many terms hit and presented as candidates, not
   a verdict. `.claude.json` and `settings*.json` are never searched: they can carry
   tokens, and a search result is text we print.
-- **Surgical recovery.** `restore.mjs apply <RP> --only <path>` puts back exactly one item
-  and touches nothing else, so fixing one regression no longer means reverting everything
-  the dev was happy with. No fuzzy path matching — restoring the wrong path is worse than
+- **Surgical recovery, in both directions.** `restore.mjs apply <RP> --only <path>` handles
+  one item and touches nothing else, so fixing one regression no longer means reverting
+  everything the dev was happy with. A removed item goes back; a created one is moved into
+  `<RP>/undone-creations/`. No fuzzy path matching — restoring the wrong path is worse than
   asking again — and a newer file that retook the path is parked, never clobbered. `fix`
   also records a standing keep, so the next run doesn't repropose what just broke things.
+
+### Fixed (undo)
+
+- **"Undo everything" did not undo everything.** `restore.mjs apply` reversed config edits
+  and put removed items back, but nothing recorded what a run *added* — so the skills
+  steps 16 and 17 write were silently left in place by a full restore, and a regression
+  caused by an addition could never be traced. A skill that shadows an existing one
+  changes routing without deleting anything, and the two cases need opposite fixes.
+  New `backup.mjs created <RP> <path>` records additions (the file itself is not touched);
+  `apply` now reverses them, `search` reports them in their own `created` bucket rather
+  than leaving the direction to be inferred from a path, and `list` shows `createdCount`
+  alongside `removedCount`. Undoing an addition **moves** it to `undone-creations/` rather
+  than deleting it — the dev may have edited a skill this tool wrote for them.
 - **A contract for a step failing mid-run.** There wasn't one. A failed **mutation** now
   halts the whole run — everything after it would reason about a state neither side
   models — while read failures still continue as before. It reports the raw error, what

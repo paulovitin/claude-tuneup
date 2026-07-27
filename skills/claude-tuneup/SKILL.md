@@ -57,7 +57,7 @@ Never make the dev decide on something they can't identify.
 The mechanical, repeatable work lives in `"$SKILL_DIR"/scripts/*.mjs` — plain Node (no deps), so it runs the same on macOS, Windows and Linux via the `node` that Claude Code already bundles. **Prefer these over ad-hoc inline shell** — never reach for `python3`, which is not guaranteed to exist; the agent's job is judgment (classify, ask, decide), the scripts' job is gather/apply.
 
 - `node scripts/scan.mjs [--section a,b]` → read-only discovery of the install as JSON. Sections: `skills`, `plugins`, `hooks`, `mcps`, `projects`, `stateDirs`, `rootFiles`, `settings`, `usage`, `memory`. Run it **once per step with just that step's section** instead of re-scanning everything. Touches nothing.
-- `node scripts/backup.mjs create` → make a restore point, print its path (`$RP`). Also `backup.mjs stash <RP> <path>` (move an item into the restore point, logged) and `backup.mjs log <RP> <msg>`.
+- `node scripts/backup.mjs create` → make a restore point, print its path (`$RP`). Also `backup.mjs stash <RP> <path>` (move an item into the restore point, logged), `backup.mjs created <RP> <path>` (record something the run added, so undo can undo it), and `backup.mjs log <RP> <msg>`.
 - `node scripts/restore.mjs list` / `restore.mjs apply <RP> [--configs-only|--items-only|--only <path>]` → list restore points, or apply one (fully, just configs, just removed items, or a single item). Also `restore.mjs search <term...>` → which past run touched the thing that broke, ranked.
 - `node scripts/doctor.mjs [--no-cache]` → run the built-in `/doctor` headless, **report-only**, and return its findings as JSON (cached 1h). Takes about 6 minutes on a real install.
 - `node scripts/insights.mjs [--no-cache]` → run `/insights` headless and return the useful report sections as JSON (cached 1h).
@@ -132,7 +132,7 @@ Routing:
   2. Ask (AskUserQuestion, with the mandatory "What does this do?" button) which restore point to use.
   3. Ask the **scope**: "Full restore" / "Configs only" / "Removed items only" (plus the explain button). Configs-only is the safe pick when the dev just wants a botched `CLAUDE.md`/`.claude.json` edit undone; items-only brings back deleted skills/dirs without touching configs.
   4. **Warn before applying.** A restore copies *old* configs back over the current ones. `.claude.json` carries live state (projects, session pointers) — so restoring it can drop projects/sessions created **after** the backup. Say this explicitly and confirm. The script protects you two ways: it first saves the **current** configs into a `pre-restore-…` folder (so the restore is itself reversible), and it never overwrites a newer item that re-took a removed path (those land at `<path>.restored-<ts>` instead).
-  5. Apply: `node "$SKILL_DIR/scripts/restore.mjs" apply <RP> [--configs-only|--items-only]` — prints `restored`, `collisions` (items that couldn't take their original path and where they went), `preRestoreSnapshot` (the pre-restore safety copy, when configs were restored), and `manualReAdd` (marketplaces/plugins for you to replay).
+  5. Apply: `node "$SKILL_DIR/scripts/restore.mjs" apply <RP> [--configs-only|--items-only]` — prints `restored`, `collisions` (items that couldn't take their original path and where they went), `undoneCreations` (skills the run *added*, moved into `<RP>/undone-creations/` — report these by name; a dev who has started using one will want it back), `preRestoreSnapshot` (the pre-restore safety copy, when configs were restored), and `manualReAdd` (marketplaces/plugins for you to replay).
   6. Validate restored JSON: `node "$SKILL_DIR/scripts/validate-json.mjs" ~/.claude.json ~/.claude/settings.json`. Report `collisions` to the dev so they resolve any `.restored-<ts>` items by hand. Offer to keep or purge the restore point + the pre-restore snapshot afterward.
   7. Retire that run's decisions: `node "$SKILL_DIR/scripts/ledger.mjs" revert-run <run-id>`. Undoing a run un-decides it — leaving the verdicts in place would keep suppressing questions about changes that no longer exist. The ledger itself survives (it lives beside the backups, not inside them), so every *other* run's decisions stand.
   8. Then offer the retry — see "After an undo" below.
@@ -176,6 +176,7 @@ RP=$(node "$SKILL_DIR/scripts/backup.mjs" create)   # snapshots configs, prints 
 
 Deletion policy:
 - **Unique / irreplaceable** (real skills, project data, configs, anything the dev can't easily regenerate) → `node "$SKILL_DIR/scripts/backup.mjs" stash "$RP" <path>` (moves it into the restore point, logged + restorable), never `rm`.
+- **Anything the run CREATES** (steps 16 and 17 write new skills) → `node "$SKILL_DIR/scripts/backup.mjs" created "$RP" <path>`, right after writing it. A run subtracts *and* adds, so recording only the removals makes "undo everything" a false promise and leaves an addition untraceable when it turns out to be what broke something. The file is not copied or touched — this only records that the run put it there.
 - **Self-regenerating artifacts** (venvs, plugin caches) → hard `rm` is fine; they rebuild. OS cruft (`.DS_Store`, `Thumbs.db`) → skip entirely.
 - **Marketplace / plugin removals** → can't move; record the re-add command: `node "$SKILL_DIR/scripts/backup.mjs" log "$RP" "marketplace removed: <name> (re-add: claude plugin marketplace add <url>)"`.
 - Config edits are covered by the snapshot above.
@@ -281,15 +282,22 @@ run. Do **not** start a tune-up.
    node "$SKILL_DIR/scripts/restore.mjs" search deploy skill
    ```
 
-   Each candidate carries `score` (how many terms hit), the exact `items` removed with whether the
-   stashed copy is still `recoverable`, matching `actions.log` lines, and matching lines from the
-   snapshotted `CLAUDE.md`/`AGENTS.md`/`SOUL.md` — so "the rule I had about commits is gone" is
-   findable too. `.claude.json` and `settings*.json` are never searched; they can carry tokens.
+   Each candidate carries `score` (how many terms hit) and matches in four places:
+   `items` (**removed** — undo puts them back), `created` (**added** — undo takes them away),
+   `log` lines, and lines from the snapshotted `CLAUDE.md`/`AGENTS.md`/`SOUL.md`, so "the rule I
+   had about commits is gone" is findable too. `.claude.json` and `settings*.json` are never
+   searched; they can carry tokens.
+
+   **A regression can come from either direction.** The obvious cause is something removed, but a
+   skill step 17 created can shadow an existing one and change routing without deleting anything —
+   and the two need opposite fixes. Read the bucket, never infer the direction from the path.
 3. **Show the candidates ranked, with dates, and let the dev confirm.** `score` is relevance, not
    proof — never present the top hit as the answer. If nothing matches, say so plainly and offer a
    manual walk through `restore list`; a confident wrong guess here costs them real work.
-4. **Recover surgically by default.** `restore.mjs apply <RP> --only <path>` puts back one item and
-   touches nothing else. Full rollback is available and should be offered, but it also reverts
+4. **Recover surgically by default.** `restore.mjs apply <RP> --only <path>` handles one item in
+   whichever direction it needs: a removed item goes back, a created one is moved into
+   `<RP>/undone-creations/` — moved, never deleted, because the dev may have edited a skill this
+   tool wrote for them. Full rollback is available and should be offered, but it also reverts
    everything the dev was happy with — say that out loud before they pick it.
 5. **Record it**, so the next tune-up doesn't propose the same removal again:
 

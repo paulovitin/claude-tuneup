@@ -25,6 +25,24 @@ const CONFIG_DEST = {
 
 const ls = (p) => { try { return fs.readdirSync(p); } catch { return []; } };
 
+const createdIn = (rp) => {
+  const list = readJSON(path.join(rp, 'created.json'));
+  return Array.isArray(list) ? list : [];
+};
+
+// Undoing a creation means taking a file away, so it goes through the same move-never-rm
+// rule as everything else: the item lands in undone-creations/ inside the restore point.
+// The dev may have edited a skill this run wrote for them, and a plain delete would take
+// that with it.
+function undoCreation(rp, target) {
+  const abs = path.resolve(target);
+  if (!exists(abs)) return null;
+  const parked = path.join(rp, 'undone-creations', path.basename(abs));
+  const dest = exists(parked) ? `${parked}.${Date.now()}` : parked;
+  move(abs, dest);
+  return { created: abs, movedTo: dest };
+}
+
 // Collect real restore points across all roots. A restore point is a dir holding a
 // removed.json — this also filters out the pre-restore-* safety snapshots.
 function allPoints() {
@@ -44,7 +62,12 @@ function list() {
     const removed = readJSON(path.join(rp, 'removed.json')) || {};
     let logLines = 0;
     try { logLines = fs.readFileSync(path.join(rp, 'actions.log'), 'utf8').trim().split('\n').length; } catch {}
-    return { ts, path: rp, removedCount: Object.keys(removed).length, logLines };
+    return {
+      ts, path: rp,
+      removedCount: Object.keys(removed).length,
+      createdCount: createdIn(rp).length,
+      logLines,
+    };
   });
   process.stdout.write(JSON.stringify(result, null, 2) + '\n');
 }
@@ -78,6 +101,16 @@ function search(rawTerms) {
       items.push({ original, stashed, recoverable: exists(stashed), terms: hits });
     }
 
+    // Additions get their own bucket: the recovery action is the opposite one, so the
+    // agent must never have to guess the direction from a path alone.
+    const created = [];
+    for (const target of createdIn(rp)) {
+      const hits = matched(target, terms);
+      if (!hits.length) continue;
+      hits.forEach((h) => hit.add(h));
+      created.push({ path: target, stillPresent: exists(target), terms: hits });
+    }
+
     const log = [];
     try {
       for (const line of fs.readFileSync(path.join(rp, 'actions.log'), 'utf8').split('\n')) {
@@ -107,9 +140,11 @@ function search(rawTerms) {
       score: hit.size,
       matchedTerms: [...hit],
       items: items.slice(0, MAX_HITS),
+      created: created.slice(0, MAX_HITS),
       log: log.slice(0, MAX_HITS),
       memory: memory.slice(0, MAX_HITS),
-      truncated: items.length > MAX_HITS || log.length > MAX_HITS || memory.length > MAX_HITS,
+      truncated: items.length > MAX_HITS || created.length > MAX_HITS
+        || log.length > MAX_HITS || memory.length > MAX_HITS,
     });
   }
   // Most terms matched first, then most recent. A single strong hit usually beats an
@@ -119,7 +154,7 @@ function search(rawTerms) {
     terms,
     points,
     searched: allPoints().length,
-    note: 'Ranked candidates, not a verdict — confirm with the dev before restoring anything. .claude.json and settings*.json are never searched: they can carry tokens.',
+    note: 'Ranked candidates, not a verdict — confirm with the dev before changing anything. `items` were REMOVED (undo puts them back); `created` were ADDED (undo takes them away, into undone-creations/). .claude.json and settings*.json are never searched: they can carry tokens.',
   }, null, 2) + '\n');
 }
 
@@ -129,14 +164,28 @@ function applyOnly(rp, target) {
   if (!rp || !exists(rp)) { console.error('restore point not found: ' + rp); process.exit(1); }
   const map = readJSON(path.join(rp, 'removed.json')) || {};
   const wanted = path.resolve(target);
+
+  // A regression can come from either direction, so undoing one item can mean putting it
+  // back OR taking it away. Check the creations first: those are unambiguous.
+  if (createdIn(rp).some((c) => path.resolve(c) === wanted)) {
+    const undone = undoCreation(rp, wanted);
+    if (!undone) {
+      console.error(JSON.stringify({ ok: false, reason: `nothing at ${wanted} to undo — already gone?` }, null, 2));
+      process.exit(1);
+    }
+    process.stdout.write(JSON.stringify({ ok: true, scope: 'single-item-creation', ...undone }, null, 2) + '\n');
+    return;
+  }
+
   const entry = Object.entries(map).find(([, original]) => path.resolve(original) === wanted);
   if (!entry) {
     // No fuzzy matching: restoring the wrong path is worse than making the agent look it
     // up again. `search` prints exact originals, so an exact match is always available.
     console.error(JSON.stringify({
       ok: false,
-      reason: `no removed item at ${wanted} in this restore point`,
-      available: Object.values(map),
+      reason: `no removed or created item at ${wanted} in this restore point`,
+      availableRemoved: Object.values(map),
+      availableCreated: createdIn(rp),
     }, null, 2));
     process.exit(1);
   }
@@ -201,7 +250,18 @@ function apply(rp, { configsOnly = false, itemsOnly = false } = {}) {
     }
   }
 
-  // 3. Surface re-add commands (marketplaces/plugins can't be auto-restored).
+  // 3. Undo what the run ADDED (skipped with --configs-only). A run subtracts and adds —
+  //    steps 16 and 17 write new skills — so putting removed items back is only half of
+  //    "undo everything". Without this, a full restore silently left the additions in place.
+  const undoneCreations = [];
+  if (!configsOnly) {
+    for (const target of createdIn(rp)) {
+      const undone = undoCreation(rp, target);
+      if (undone) undoneCreations.push(undone);
+    }
+  }
+
+  // 4. Surface re-add commands (marketplaces/plugins can't be auto-restored).
   let readd = [];
   try {
     readd = fs.readFileSync(path.join(rp, 'actions.log'), 'utf8')
@@ -209,7 +269,7 @@ function apply(rp, { configsOnly = false, itemsOnly = false } = {}) {
   } catch {}
   process.stdout.write(JSON.stringify({
     scope: configsOnly ? 'configs-only' : itemsOnly ? 'items-only' : 'full',
-    restored, collisions, preRestoreSnapshot: preDir, manualReAdd: readd,
+    restored, collisions, undoneCreations, preRestoreSnapshot: preDir, manualReAdd: readd,
   }, null, 2) + '\n');
 }
 
