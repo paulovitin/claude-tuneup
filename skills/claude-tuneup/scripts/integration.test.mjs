@@ -46,6 +46,39 @@ test('scan --section hooks sees references in settings.local.json (not just sett
   fs.rmSync(home, { recursive: true, force: true });
 });
 
+// scanMemory used to read settings.json alone, so a dev who disabled auto-memory in their
+// local file was told it was still on. Precedence is one module's job now; this is the
+// end-to-end proof that the answer changed.
+test('scan --section memory honours auto-memory settings from settings.local.json', () => {
+  const home = makeHome();
+  const claude = path.join(home, '.claude');
+  fs.writeFileSync(path.join(claude, 'settings.json'), JSON.stringify({ autoMemoryEnabled: true }));
+  fs.writeFileSync(path.join(claude, 'settings.local.json'), JSON.stringify({
+    autoMemoryEnabled: false,
+    autoMemoryDirectory: '~/memories',
+  }));
+  const { memory } = runJSON(home, 'scan.mjs', '--section', 'memory');
+  assert.equal(memory.autoMemoryEnabled, false,
+    'a dev who turned auto-memory off in their local file must not be told it is on');
+  assert.equal(memory.autoMemoryDirectory, path.join(home, 'memories'));
+  assert.equal(memory.memoryScope, 'global');
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('scan --section settings resolves scalar keys the way Claude Code does', () => {
+  const home = makeHome();
+  const claude = path.join(home, '.claude');
+  fs.writeFileSync(path.join(claude, 'settings.json'), JSON.stringify({ model: 'sonnet', outputStyle: 'terse' }));
+  fs.writeFileSync(path.join(claude, 'settings.local.json'), JSON.stringify({ model: 'opus' }));
+  const { settings } = runJSON(home, 'scan.mjs', '--section', 'settings');
+  assert.equal(settings.model, 'opus', 'settings.local.json wins on a shared scalar');
+  assert.equal(settings.outputStyle.configured, 'terse', 'a base-only key still applies');
+  assert.deepEqual(settings.files.map((f) => f.file), ['settings.json', 'settings.local.json']);
+  assert.equal(settings.files.some((f) => 'path' in f), false,
+    'the reported shape is the file name, not an absolute path');
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
 test('scan --section plugins refuses to trust an empty listing when content exists', () => {
   const home = makeHome();
   const plugins = path.join(home, '.claude', 'plugins');

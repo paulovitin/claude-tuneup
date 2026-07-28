@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 // Run Claude Code's built-in /doctor headlessly and return its report as JSON.
 // This is deliberately report-only: /doctor may otherwise propose and apply changes.
-import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { out, stateBase } from './lib.mjs';
+import { spawnClaude, withCache } from './headless.mjs';
 
 export const REPORT_ONLY = 'Report only. Do not apply, edit, or write anything — output the findings and proposals as text.';
 export const RECURSION_GUARD = 'CLAUDE_TUNEUP_DOCTOR_RUNNING';
@@ -14,21 +14,6 @@ export const CACHE_FILE = path.join(stateBase(), 'doctor-cache.json');
 
 export function buildArgv() {
   return ['-p', `/doctor ${REPORT_ONLY}`];
-}
-
-function loadCache() {
-  try {
-    const cached = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8'));
-    if (cached && Date.now() - cached.ts < CACHE_TTL_MS) return cached.data;
-  } catch {}
-  return null;
-}
-
-function saveCache(data) {
-  try {
-    fs.mkdirSync(path.dirname(CACHE_FILE), { recursive: true });
-    fs.writeFileSync(CACHE_FILE, JSON.stringify({ ts: Date.now(), data }, null, 2));
-  } catch {}
 }
 
 function sectionKind(title) {
@@ -189,48 +174,28 @@ export function parseReport(markdown) {
   return result;
 }
 
-function timeoutReason(elapsed) {
-  return `doctor timed out after ${(elapsed / 1000).toFixed(1)}s.`;
-}
-
 // Exported for offline tests. The injectable exec function keeps tests from ever spawning Claude.
+// A half-written report is worse than none: a fatal timeout is reported rather than parsed,
+// and a parse that matched no checks is returned but never cached (a retry after a /doctor
+// format change must re-parse instead of being frozen for an hour).
 export function generate({ noCache = false, exec = execFileSync } = {}) {
-  if (process.env[RECURSION_GUARD]) {
-    return { ok: false, reason: 'recursion guard: refusing to spawn `claude -p` from inside a doctor run' };
-  }
-  if (!noCache) {
-    const cached = loadCache();
-    if (cached) return cached;
-  }
-
-  const start = Date.now();
-  let stdout = '';
-  try {
-    stdout = exec('claude', buildArgv(), {
-      encoding: 'utf8',
-      timeout: 600000,
-      killSignal: 'SIGTERM',
+  return withCache({
+    file: CACHE_FILE,
+    ttlMs: CACHE_TTL_MS,
+    noCache,
+    cacheable: (result) => result.ok && result.checks.length > 0,
+  }, () => {
+    const run = spawnClaude({
+      argv: buildArgv(),
+      guard: RECURSION_GUARD,
+      label: 'doctor',
+      timeoutMs: 600000,
       maxBuffer: 10 * 1024 * 1024,
-      env: { ...process.env, [RECURSION_GUARD]: '1' },
+      timeoutIsFatal: true,
+      exec,
     });
-  } catch (error) {
-    const elapsed = Date.now() - start;
-    stdout = (error.stdout || '').toString();
-    if (error && error.code === 'ENOENT') {
-      return { ok: false, reason: 'claude is not available on PATH' };
-    }
-    if (error && (error.code === 'ETIMEDOUT' || error.signal === 'SIGTERM' || error.killed)) {
-      return { ok: false, reason: timeoutReason(elapsed) };
-    }
-    if (!stdout) {
-      return { ok: false, reason: 'doctor exited without usable stdout' };
-    }
-  }
-
-  const result = parseReport(stdout);
-  if (!result.ok) return result;
-  if (result.checks.length > 0) saveCache(result);
-  return result;
+    return run.ok ? parseReport(run.stdout) : run;
+  });
 }
 
 function usage() {

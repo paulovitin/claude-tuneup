@@ -11,10 +11,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { HOME, CLAUDE_DIR, AGENTS_DIR, CLAUDE_JSON, readJSON, exists, dirSize, isEmptyDir, human, MB, out } from './lib.mjs';
+import { HOME, CLAUDE_DIR, AGENTS_DIR, CLAUDE_JSON, readJSON, exists, dirSize, isEmptyDir, human, ls, lstat, MB, out } from './lib.mjs';
+import {
+  claudeFile, settingsFiles, liveSettings, effectiveSetting, effectiveString,
+  resolveConfiguredPath, memoryFile, MERGED_SETTINGS_KEYS,
+} from './install.mjs';
 
-const ls = (p) => { try { return fs.readdirSync(p); } catch { return []; } };
-const lstat = (p) => { try { return fs.lstatSync(p); } catch { return null; } };
 const OS_CRUFT = new Set(['.DS_Store', 'Thumbs.db']);
 // Files that hold live credentials. Never listed, never read, never offered as a
 // decision — the only safe handling is to act as if they aren't there.
@@ -130,10 +132,7 @@ function scanHooks() {
   // Hooks can be wired in settings.json OR settings.local.json — check both, or a hook
   // referenced only in the local file gets falsely flagged as an orphan.
   const sources = {};
-  for (const f of ['settings.json', 'settings.local.json']) {
-    const s = readJSON(path.join(CLAUDE_DIR, f));
-    if (s) sources[f] = JSON.stringify(s.hooks || {});
-  }
+  for (const f of liveSettings()) sources[f.name] = JSON.stringify(f.data.hooks || {});
   const refIn = (file) => Object.entries(sources)
     .filter(([, blob]) => hookReferenced(blob, file))
     .map(([src]) => src);
@@ -191,12 +190,15 @@ export function classifyMcp(spec) {
     : { transport: 'local', secretHints, missingPaths: checkCmdPath(spec).missing };
 }
 
+// mcpServers is a MERGED key — the files combine rather than override — so each is
+// reported separately and never collapsed into one "effective" list.
 function scanMCPs() {
   const fromFile = (obj) => Object.entries(obj || {}).map(([name, spec]) => ({ name, ...classifyMcp(spec) }));
+  const byName = Object.fromEntries(settingsFiles().map((f) => [f.name, f.parses ? f.data : null]));
   return {
     global: fromFile(readJSON(CLAUDE_JSON)?.mcpServers),
-    settings: fromFile(readJSON(path.join(CLAUDE_DIR, 'settings.json'))?.mcpServers),
-    settingsLocal: fromFile(readJSON(path.join(CLAUDE_DIR, 'settings.local.json'))?.mcpServers),
+    settings: fromFile(byName['settings.json']?.mcpServers),
+    settingsLocal: fromFile(byName['settings.local.json']?.mcpServers),
   };
 }
 
@@ -338,9 +340,6 @@ const KNOWN_SETTINGS_KEYS = new Set([
   'otelHeadersHelper', 'outputStyle', 'permissions', 'sandbox', 'statusLine',
 ]);
 
-// Keys Claude Code combines across settings files rather than overriding.
-const MERGED_SETTINGS_KEYS = new Set(['permissions', 'hooks', 'env', 'mcpServers']);
-
 const SECRET_KEY_NAME = /key|token|secret|passw|credential/i;
 const GLOB_CHARS = /[*?[\]{}]/;
 // One letter, colon, separator — "domain:example.com" is not a drive.
@@ -399,20 +398,18 @@ function hookCommands(hooks) {
 }
 
 function scanSettings() {
-  const names = ['settings.json', 'settings.local.json'];
-  const loaded = names.map((name) => {
-    const file = path.join(CLAUDE_DIR, name);
-    if (!exists(file)) return { file: name, exists: false };
-    const data = readJSON(file);
-    if (data === null || typeof data !== 'object' || Array.isArray(data)) {
-      return { file: name, exists: true, parses: false };
-    }
-    return {
-      file: name, exists: true, parses: true, data,
-      keys: Object.keys(data),
-      unknownKeys: Object.keys(data).filter((k) => !KNOWN_SETTINGS_KEYS.has(k)),
-    };
-  });
+  // Read once, then reported and queried from the same snapshot — so a finding and the
+  // effective value it is compared against can never come from two different reads.
+  const settingsAsFiles = settingsFiles();
+  // `file` (not `name`) is the reported field — it is what the dev sees in every finding.
+  const loaded = settingsAsFiles.map(({ name, ...rest }) => ({
+    file: name,
+    ...rest,
+    ...(rest.parses ? {
+      keys: Object.keys(rest.data),
+      unknownKeys: Object.keys(rest.data).filter((k) => !KNOWN_SETTINGS_KEYS.has(k)),
+    } : {}),
+  }));
   const live = loaded.filter((f) => f.parses);
 
   // --- permissions
@@ -487,7 +484,7 @@ function scanSettings() {
   // miss is "not one of yours", never "broken".
   const stylesDir = path.join(CLAUDE_DIR, 'output-styles');
   const customStyles = ls(stylesDir).filter((n) => n.endsWith('.md')).map((n) => n.replace(/\.md$/, ''));
-  const configuredStyle = live.map((f) => f.data.outputStyle).filter((v) => typeof v === 'string').pop() || null;
+  const configuredStyle = effectiveString('outputStyle', settingsAsFiles);
   const outputStyle = configuredStyle === null ? null : {
     configured: configuredStyle,
     matchesCustom: customStyles.includes(configuredStyle),
@@ -496,7 +493,7 @@ function scanSettings() {
   };
 
   return {
-    files: loaded.map(({ data, ...rest }) => rest),
+    files: loaded.map(({ data, path: _abs, ...rest }) => rest),
     permissions: {
       rules,
       duplicatedInSameList: [...withinList].filter(([, n]) => n > 1).map(([k]) => k),
@@ -508,40 +505,35 @@ function scanSettings() {
     brokenPaths,
     envSecretHints,
     outputStyle,
-    model: live.map((f) => f.data.model).filter((v) => typeof v === 'string').pop() || null,
+    model: effectiveString('model', settingsAsFiles),
     note: 'Only user-level settings were read; enterprise and project settings also apply and are out of scope. Unknown top-level keys are reported, never proposed for removal — the key list is hand-maintained and a newer Claude Code may have added it.',
   };
 }
 
 export function scanMemory() {
-  const claudePath = path.join(CLAUDE_DIR, 'CLAUDE.md');
-  const agentsPath = path.join(CLAUDE_DIR, 'AGENTS.md');
-  const soulPath = path.join(CLAUDE_DIR, 'SOUL.md');
+  const claudePath = claudeFile('CLAUDE.md');
+  const agentsPath = claudeFile('AGENTS.md');
   let symlinkToAgents = false;
   const st = lstat(claudePath);
   if (st?.isSymbolicLink()) {
     try { symlinkToAgents = fs.realpathSync(claudePath) === fs.realpathSync(agentsPath); } catch {}
   }
-  const read = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return ''; } };
-  const f = (p, extra = {}) => exists(p) ? { exists: true, text: read(p), ...extra } : { exists: false };
-  const settings = readJSON(path.join(CLAUDE_DIR, 'settings.json')) || {};
-  const configured = typeof settings.autoMemoryDirectory === 'string' && settings.autoMemoryDirectory.trim()
-    ? settings.autoMemoryDirectory.trim()
-    : null;
-  const directory = configured
-    ? path.resolve(/^~[\\/]/.test(configured) ? path.join(HOME, configured.slice(2)) : configured)
-    : null;
+  // Both settings files, in precedence order. Reading settings.json alone reported
+  // auto-memory as enabled for anyone who had turned it off in their local file — the
+  // whole reason the effective-value question belongs to one module.
+  const settings = settingsFiles();
+  const directory = resolveConfiguredPath(effectiveString('autoMemoryDirectory', settings));
   const memoryPath = directory || locateProjectMemoryDir(process.cwd());
   const memoryDir = memoryPath
     ? { path: memoryPath, exists: exists(memoryPath), fileCount: countMemoryFiles(memoryPath) }
     : null;
   return analyzeMemory({
-    claude: f(claudePath, { symlinkToAgents }),
-    agents: f(agentsPath),
-    soul: f(soulPath),
+    claude: { ...memoryFile('CLAUDE.md'), symlinkToAgents },
+    agents: memoryFile('AGENTS.md'),
+    soul: memoryFile('SOUL.md'),
   }, {
     disabledByEnvironment: Object.prototype.hasOwnProperty.call(process.env, 'CLAUDE_CODE_DISABLE_AUTO_MEMORY'),
-    disabledBySettings: settings.autoMemoryEnabled === false,
+    disabledBySettings: effectiveSetting('autoMemoryEnabled', settings) === false,
     directory,
     memoryDir,
     teamMounts: !!memoryDir && lstat(path.join(memoryPath, 'team'))?.isDirectory(),

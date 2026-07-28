@@ -36,7 +36,15 @@ Two layers, deliberately split:
 
   Steps are numbered by history, not running order; `SKILL.md` holds the running order and step 11 (summary). Numbers are never reused — a retired step's number stays retired.
 
-- **`scripts/*.mjs`** — deterministic, cross-OS (macOS/Windows/Linux), Node built-ins only; `lib.mjs` is the shared core everything imports. `SKILL.md` documents each script and its flags — that is the source of truth, so don't restate it here.
+- **`scripts/*.mjs`** — deterministic, cross-OS (macOS/Windows/Linux), Node built-ins only. `SKILL.md` documents each *command* script and its flags — that is the source of truth, so don't restate it here. Three modules have no CLI and so appear nowhere in `SKILL.md`:
+
+  | Module | Owns |
+  |---|---|
+  | `lib.mjs` | paths, run ids, degrading FS primitives, `move`/`restrict`/`linkDir` |
+  | `install.mjs` | what the install *says*: layout, settings precedence, the snapshot list |
+  | `headless.mjs` | the `claude -p` recursion guard, one capped spawn, the TTL cache |
+
+  **Ask `install.mjs`, never a settings file directly.** "Which file wins?" is its question to answer — `effectiveSetting`/`effectiveString` for scalars, `settingsFiles()` for the merged keys (`permissions`, `hooks`, `env`, `mcpServers`), which it refuses to collapse. Six call sites once answered this independently and three of them disagreed; `scanMemory` read `settings.json` alone and reported auto-memory as enabled for anyone who had disabled it locally.
 
 ### Invariants — do not break these
 
