@@ -11,6 +11,15 @@ take a **major** bump.
 
 ## [Unreleased]
 
+### Changed
+
+- `restore.mjs` `list`/`search`/`apply` output now includes a `runId` field — the restore
+  point's basename, which is the ledger run id by construction — so `ledger.mjs revert-run`
+  after an undo never needs the id computed by hand.
+- Internal: the restore-point on-disk format shared by `backup.mjs`/`restore.mjs` now lives
+  in `scripts/restorepoint.mjs`, and `scan.mjs`'s settings audit is a pure function over one
+  filesystem snapshot.
+
 ## [5.1.1] - 2026-07-28
 
 Two settings bugs, both found by asking why the same question was answered in six places.
@@ -31,15 +40,9 @@ Two settings bugs, both found by asking why the same question was answered in si
 
 - `doctor.mjs` now answers from a warm cache inside a nested run instead of refusing on the
   recursion guard, matching what `insights.mjs` already did.
-- `restore.mjs` `list`/`search`/`apply` output now includes a `runId` field — the restore
-  point's basename, which is the ledger run id by construction — so `ledger.mjs revert-run`
-  after an undo never needs the id computed by hand.
 - Internal: install layout, settings precedence and the restore-point config list moved into
   `scripts/install.mjs`; the `claude -p` guard/spawn/cache plumbing shared by `doctor.mjs`
-  and `insights.mjs` moved into `scripts/headless.mjs`. No script flags changed. The
-  restore-point on-disk format shared by `backup.mjs`/`restore.mjs` now lives in
-  `scripts/restorepoint.mjs`, and `scan.mjs`'s settings audit is a pure function over one
-  filesystem snapshot.
+  and `insights.mjs` moved into `scripts/headless.mjs`. No script flags changed.
 
 ## [5.1.0] - 2026-07-27
 
