@@ -47,6 +47,22 @@ export function exists(p) {
   try { fs.lstatSync(p); return true; } catch { return false; }
 }
 
+// Degrading FS primitives: a missing or unreadable path is a normal state when walking
+// someone else's install, never an exception to handle at each of the dozens of call sites.
+// These were reimplemented verbatim in three scripts before they lived here.
+export function ls(p) {
+  try { return fs.readdirSync(p); } catch { return []; }
+}
+
+export function lstat(p) {
+  try { return fs.lstatSync(p); } catch { return null; }
+}
+
+// null (not '') for an unreadable file, so callers can tell "no such file" from "empty file".
+export function readText(p) {
+  try { return fs.readFileSync(p, 'utf8'); } catch { return null; }
+}
+
 // Recursive size in bytes. Does not follow symlinks (counts the link as 0, like a real dir walk).
 export function dirSize(p) {
   let total = 0;

@@ -6,21 +6,12 @@
 //   node backup.mjs log <RP> <msg>      -> append a line to actions.log (e.g. a re-add command)
 import fs from 'node:fs';
 import path from 'node:path';
-import { CLAUDE_DIR, CLAUDE_JSON, backupsRoot, runId, exists, move, restrict } from './lib.mjs';
+import { backupsRoot, runId, exists, move, restrict } from './lib.mjs';
+import { CONFIG_FILES } from './install.mjs';
 
 // Restore points live outside the skill dir (see lib.backupsRoot) so a skill
 // reinstall/update/move can't take the undo history with it.
 const BACKUPS = backupsRoot();
-
-// Small, irreplaceable config files this skill may edit.
-const CONFIGS = [
-  CLAUDE_JSON,
-  path.join(CLAUDE_DIR, 'settings.json'),
-  path.join(CLAUDE_DIR, 'settings.local.json'),
-  path.join(CLAUDE_DIR, 'CLAUDE.md'),
-  path.join(CLAUDE_DIR, 'AGENTS.md'),
-  path.join(CLAUDE_DIR, 'SOUL.md'),
-];
 
 function create() {
   const rp = path.join(BACKUPS, runId());
@@ -28,7 +19,7 @@ function create() {
   // Snapshots can carry secrets (.claude.json may hold tokens/keys) — keep the
   // restore point owner-only. Best effort; no-op-ish on Windows.
   restrict(rp, 0o700);
-  for (const f of CONFIGS) {
+  for (const f of CONFIG_FILES) {
     if (!exists(f)) continue;
     const dest = path.join(rp, path.basename(f));
     fs.copyFileSync(f, dest);

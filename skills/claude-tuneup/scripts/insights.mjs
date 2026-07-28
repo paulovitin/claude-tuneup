@@ -7,14 +7,22 @@
 //   node insights.mjs --no-cache   -> force a fresh run (one model call)
 //
 // CACHE: Results are cached to avoid costly model calls on repeated runs.
-// Cache lives at ~/.claude/.claude-tuneup-insights-cache.json and expires after 1 hour.
+// Cache lives beside the backups (~/.claude-tuneup/, override $CLAUDE_TUNEUP_STATE) and
+// expires after 1 hour. It used to sit INSIDE ~/.claude — the one place this skill's own
+// state must never live, and where the skill's own root-file scan would then offer to
+// delete it as a stray cache.
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { CLAUDE_DIR, out } from './lib.mjs';
+import { CLAUDE_DIR, stateBase, out } from './lib.mjs';
+import { spawnClaude, withCache } from './headless.mjs';
 
-export const CACHE_FILE = path.join(CLAUDE_DIR, '.claude-tuneup-insights-cache.json');
+export const CACHE_FILE = path.join(stateBase(), 'insights-cache.json');
+// Where the cache used to live. Swept once, best-effort, so upgrading doesn't strand a
+// stale file in the dev's install. A regenerable cache is the one thing this skill may
+// hard-remove.
+const LEGACY_CACHE_FILE = path.join(CLAUDE_DIR, '.claude-tuneup-insights-cache.json');
 export const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 export const RECURSION_GUARD = 'CLAUDE_TUNEUP_INSIGHTS_RUNNING';
 
@@ -22,19 +30,8 @@ export function buildArgv() {
   return ['-p', '/insights'];
 }
 
-function loadCache() {
-  try {
-    const cached = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8'));
-    if (cached && Date.now() - cached.ts < CACHE_TTL_MS) return cached.data;
-  } catch {}
-  return null;
-}
-
-function saveCache(data) {
-  try {
-    fs.mkdirSync(path.dirname(CACHE_FILE), { recursive: true });
-    fs.writeFileSync(CACHE_FILE, JSON.stringify({ ts: Date.now(), data }, null, 2));
-  } catch {}
+function sweepLegacyCache() {
+  try { fs.rmSync(LEGACY_CACHE_FILE, { force: true }); } catch {}
 }
 
 export function section(html, anchorRe) {
@@ -67,33 +64,20 @@ export function parseSections(html) {
 // no browser. Returns the report path, or a reason.
 // Exported for offline tests. The injectable exec function keeps tests from ever spawning Claude.
 export function locateReport({ exec = execFileSync } = {}) {
-  // Recursion guard: this spawns `claude` from inside a Claude skill. If we're already
-  // inside such a spawn, refuse — never let insights call itself and fork model calls.
-  if (process.env[RECURSION_GUARD]) {
-    return { ok: false, reason: 'recursion guard: refusing to spawn `claude -p` from inside an insights run' };
-  }
-
-  let stdout = '';
-  const start = Date.now();
-  try {
-    stdout = exec('claude', buildArgv(), {
-      encoding: 'utf8',
-      timeout: 120000,        // 2-minute max
-      killSignal: 'SIGTERM',
-      env: { ...process.env, [RECURSION_GUARD]: '1' },
-    });
-  } catch (e) {
-    stdout = (e?.stdout || '').toString();
-    const elapsed = Date.now() - start;
-    if (e && e.code === 'ENOENT') {
-      return { ok: false, reason: 'claude is not available on PATH' };
-    }
-    // If it timed out or crashed without producing output, return a clear reason
-    if (!stdout) {
-      return { ok: false, reason: `insights timed out after ${elapsed / 1000}s (no output). Try again later.` };
-    }
-  }
-  const m = stdout.match(/file:\/\/(\S+\.html)/);
+  // The recursion guard (never let insights spawn insights and fork model calls), the
+  // 2-minute cap, and the degrade-never-throw error handling all live in headless.mjs.
+  // A timeout is NOT fatal here: the `file://` line is all this needs, so partial output
+  // is still worth matching against.
+  const run = spawnClaude({
+    argv: buildArgv(),
+    guard: RECURSION_GUARD,
+    label: 'insights',
+    timeoutMs: 120000,
+    emptyStdoutReason: (elapsedMs) => `insights timed out after ${elapsedMs / 1000}s (no output). Try again later.`,
+    exec,
+  });
+  if (!run.ok) return run;
+  const m = run.stdout.match(/file:\/\/(\S+\.html)/);
   const reportPath = m ? decodeURIComponent(m[1]) : null;
   if (!reportPath || !fs.existsSync(reportPath)) {
     return { ok: false, reason: 'no report (needs session history, or claude -p unavailable)' };
@@ -102,30 +86,30 @@ export function locateReport({ exec = execFileSync } = {}) {
 }
 
 export function generate({ noCache = false, exec = execFileSync } = {}) {
-  // Cache is checked before the recursion guard on purpose: a fresh cached result is
-  // still useful inside a nested run, and returning it spawns nothing.
-  if (!noCache) {
-    const cached = loadCache();
-    if (cached) return cached;
-  }
+  sweepLegacyCache();
+  // Empty sections usually mean the /insights HTML layout changed under us. That result is
+  // returned but never cached — a retry after a fix must re-parse instead of being frozen
+  // for an hour behind the miss.
+  return withCache({
+    file: CACHE_FILE,
+    ttlMs: CACHE_TTL_MS,
+    noCache,
+    cacheable: (result) => result.ok && Object.keys(result.sections).length > 0,
+  }, () => {
+    const located = locateReport({ exec });
+    if (!located.ok) return located;
 
-  const located = locateReport({ exec });
-  if (!located.ok) return located;
+    let html = '';
+    try { html = fs.readFileSync(located.report, 'utf8'); }
+    catch { return { ok: false, reason: `report at ${located.report} could not be read` }; }
 
-  let html = '';
-  try { html = fs.readFileSync(located.report, 'utf8'); }
-  catch { return { ok: false, reason: `report at ${located.report} could not be read` }; }
-
-  const sections = parseSections(html);
-  const result = { ok: true, report: located.report, sections };
-  // Empty sections usually mean the /insights HTML layout changed under us. Don't cache
-  // the miss (a retry after a fix should re-parse), and point the agent at the raw file.
-  if (Object.keys(sections).length === 0) {
-    result.note = 'No known sections matched — the /insights HTML format may have changed. Read the report file directly and extract "Suggested CLAUDE.md Additions" by hand.';
-  } else {
-    saveCache(result);
-  }
-  return result;
+    const sections = parseSections(html);
+    const result = { ok: true, report: located.report, sections };
+    if (Object.keys(sections).length === 0) {
+      result.note = 'No known sections matched — the /insights HTML format may have changed. Read the report file directly and extract "Suggested CLAUDE.md Additions" by hand.';
+    }
+    return result;
+  });
 }
 
 function usage() {

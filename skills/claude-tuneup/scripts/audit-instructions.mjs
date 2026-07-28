@@ -4,12 +4,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CLAUDE_DIR, AGENTS_DIR, exists, readJSON, out } from './lib.mjs';
+import { CLAUDE_DIR, AGENTS_DIR, exists, ls, lstat, readText as read, out } from './lib.mjs';
+import { claudeFile, effectiveString } from './install.mjs';
 import { parseImports } from './scan.mjs';
-
-const ls = (p) => { try { return fs.readdirSync(p); } catch { return []; } };
-const lstat = (p) => { try { return fs.lstatSync(p); } catch { return null; } };
-const read = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } };
 
 const SIGNALS = [
   ['absolute', /\b(?:never|always|must|do not|don't|no exceptions|under no circumstances)\b/i],
@@ -59,13 +56,13 @@ export function findInstructionCandidates(file, text) {
 }
 
 export function auditInstructions() {
-  const claudePath = path.join(CLAUDE_DIR, 'CLAUDE.md');
+  const claudePath = claudeFile('CLAUDE.md');
   const files = [];
   const claudeText = read(claudePath);
   if (claudeText !== null) files.push({ path: claudePath, text: claudeText });
   const imports = claudeText === null ? [] : parseImports(claudeText);
   const importsAgents = imports.some((entry) => entry.split(/[\\/]/).pop() === 'AGENTS.md');
-  const agentsPath = path.join(CLAUDE_DIR, 'AGENTS.md');
+  const agentsPath = claudeFile('AGENTS.md');
   if (importsAgents && exists(agentsPath)) {
     const agentsText = read(agentsPath);
     if (agentsText !== null) files.push({ path: agentsPath, text: agentsText });
@@ -265,13 +262,9 @@ function surfacePaths() {
   ];
 }
 
-function activeOutputStyle() {
-  for (const name of ['settings.local.json', 'settings.json']) {
-    const settings = readJSON(path.join(CLAUDE_DIR, name));
-    if (typeof settings?.outputStyle === 'string') return settings.outputStyle;
-  }
-  return null;
-}
+// Which style is actually in force. The precedence (local wins) is the install module's
+// to know, not this file's — three call sites used to answer it three different ways.
+const activeOutputStyle = () => effectiveString('outputStyle');
 
 export function scanSurfaces() {
   const surfaces = [];

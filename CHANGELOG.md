@@ -11,6 +11,26 @@ take a **major** bump.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Auto-memory settings were read from `settings.json` alone.** A dev who set
+  `autoMemoryEnabled: false` or `autoMemoryDirectory` in `settings.local.json` was told
+  auto-memory was still on, and their configured memory directory was reported as unset.
+  Precedence (the local file wins for a scalar key) now lives in one place and every scan
+  answers the same way.
+- **`insights.mjs` cached inside `~/.claude`.** This skill's own state belongs beside the
+  backups (`~/.claude-tuneup/`, `$CLAUDE_TUNEUP_STATE`) — the old location was the one place
+  it must not be, where the skill's own root-file scan classes it as a stray cache and
+  offers to delete it. A run now sweeps the stale file left by earlier versions.
+
+### Changed
+
+- `doctor.mjs` now answers from a warm cache inside a nested run instead of refusing on the
+  recursion guard, matching what `insights.mjs` already did.
+- Internal: install layout, settings precedence and the restore-point config list moved into
+  `scripts/install.mjs`; the `claude -p` guard/spawn/cache plumbing shared by `doctor.mjs`
+  and `insights.mjs` moved into `scripts/headless.mjs`. No script flags changed.
+
 ## [5.1.0] - 2026-07-27
 
 The v5 pivot said the tool audits *what loads into every session*. It read three of those

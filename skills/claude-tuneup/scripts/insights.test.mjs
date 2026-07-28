@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// CACHE_FILE is derived from CLAUDE_DIR at module load, so HOME has to be redirected
+// CACHE_FILE is derived from the state base at module load, so HOME has to be redirected
 // BEFORE the import — hence the dynamic import. Nothing here may touch a real install.
 const HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'tuneup-insights-'));
 fs.mkdirSync(path.join(HOME, '.claude'), { recursive: true });
@@ -36,6 +36,22 @@ test('CACHE_FILE resolves under the redirected home — a test must never touch 
   assert.ok(CACHE_FILE.startsWith(HOME), `${CACHE_FILE} escaped the throwaway home`);
   assert.equal(CACHE_TTL_MS, 60 * 60 * 1000);
   assert.deepEqual(buildArgv(), ['-p', '/insights']);
+});
+
+// This skill's own state lives OUTSIDE the install it inspects. The cache used to sit in
+// ~/.claude, where the skill's own root-file scan classes a *-cache.json as regenerable and
+// offers to delete it.
+test('the cache lives beside the backups, never inside ~/.claude', () => {
+  assert.equal(CACHE_FILE.startsWith(path.join(HOME, '.claude', path.sep)), false, CACHE_FILE);
+  assert.ok(CACHE_FILE.startsWith(path.join(HOME, '.claude-tuneup')), CACHE_FILE);
+});
+
+test('a run sweeps the cache the old version left inside the install', () => {
+  const legacy = path.join(HOME, '.claude', '.claude-tuneup-insights-cache.json');
+  fs.writeFileSync(legacy, JSON.stringify({ ts: Date.now(), data: { ok: true, sections: {} } }));
+  clearCache();
+  generate({ noCache: true, exec: () => 'file:///definitely/not/here.html\n' });
+  assert.equal(fs.existsSync(legacy), false, 'the stale in-install cache must not survive an upgrade');
 });
 
 test('parseSections extracts the four known sections and ignores the rest', () => {

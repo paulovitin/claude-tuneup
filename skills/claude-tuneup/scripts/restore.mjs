@@ -7,23 +7,16 @@
 //   node restore.mjs search <term...>                  -> which run touched the thing that broke
 import fs from 'node:fs';
 import path from 'node:path';
-import { CLAUDE_DIR, CLAUDE_JSON, skillRoot, backupsRoot, exists, move, readJSON, restrict } from './lib.mjs';
+import { skillRoot, backupsRoot, exists, ls, move, readJSON, restrict } from './lib.mjs';
+import { CONFIG_FILES } from './install.mjs';
 
 // New restore points live in backupsRoot(); older ones may still sit in the legacy
 // in-skill location. Scan both so a pre-fix backup stays restorable.
 const ROOTS = [backupsRoot(), path.join(skillRoot(import.meta.url), '.backups')];
 
-// Where each snapshotted config goes back to.
-const CONFIG_DEST = {
-  '.claude.json': CLAUDE_JSON,
-  'settings.json': path.join(CLAUDE_DIR, 'settings.json'),
-  'settings.local.json': path.join(CLAUDE_DIR, 'settings.local.json'),
-  'CLAUDE.md': path.join(CLAUDE_DIR, 'CLAUDE.md'),
-  'AGENTS.md': path.join(CLAUDE_DIR, 'AGENTS.md'),
-  'SOUL.md': path.join(CLAUDE_DIR, 'SOUL.md'),
-};
-
-const ls = (p) => { try { return fs.readdirSync(p); } catch { return []; } };
+// Where each snapshotted config goes back to. Derived from the same list backup.mjs
+// snapshots, so the two halves of the round-trip cannot drift apart.
+const CONFIG_DEST = Object.fromEntries(CONFIG_FILES.map((file) => [path.basename(file), file]));
 
 const createdIn = (rp) => {
   const list = readJSON(path.join(rp, 'created.json'));
