@@ -11,6 +11,11 @@ take a **major** bump.
 
 ## [Unreleased]
 
+## [5.2.0] - 2026-07-28
+
+The undo loop loses its one hand-computed step, and the settings audit becomes a pure
+function anyone can test with plain objects.
+
 ### Changed
 
 - `restore.mjs` `list`/`search`/`apply` output now includes a `runId` field — the restore
@@ -350,7 +355,8 @@ Almost nothing about a run behaves the way 0.4.x behaved.
   undoable runs via restore points; session-history protection; `--dry-run`;
   EN + pt-BR READMEs.
 
-[Unreleased]: https://github.com/paulovitin/claude-tuneup/compare/v5.1.1...HEAD
+[Unreleased]: https://github.com/paulovitin/claude-tuneup/compare/v5.2.0...HEAD
+[5.2.0]: https://github.com/paulovitin/claude-tuneup/compare/v5.1.1...v5.2.0
 [5.1.1]: https://github.com/paulovitin/claude-tuneup/compare/v5.1.0...v5.1.1
 [5.1.0]: https://github.com/paulovitin/claude-tuneup/compare/v5.0.0...v5.1.0
 [5.0.0]: https://github.com/paulovitin/claude-tuneup/compare/v0.4.1...v5.0.0
