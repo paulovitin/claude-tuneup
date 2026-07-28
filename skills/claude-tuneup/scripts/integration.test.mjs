@@ -65,6 +65,11 @@ test('scan --section memory honours auto-memory settings from settings.local.jso
   fs.rmSync(home, { recursive: true, force: true });
 });
 
+// The one end-to-end proof that gatherSettingsSnapshot and auditSettings are wired
+// together correctly against real files. Everything about what auditSettings computes —
+// duplicate/contradictory rules, broken paths, output style, secret hints — is a unit
+// test in scan.test.mjs now; this only has to prove the CLI still ties the two halves
+// together and that real-file precedence resolution still works.
 test('scan --section settings resolves scalar keys the way Claude Code does', () => {
   const home = makeHome();
   const claude = path.join(home, '.claude');
@@ -148,6 +153,7 @@ test('backup -> stash -> restore roundtrip puts configs and removed items back',
   fs.writeFileSync(path.join(claude, 'CLAUDE.md'), '# v2 (post-backup)\n');
   const res = runJSON(home, 'restore.mjs', 'apply', rp);
   assert.equal(res.scope, 'full');
+  assert.equal(res.runId, path.basename(rp), 'the restore point IS its run id, surfaced end-to-end');
   assert.equal(fs.readFileSync(path.join(claude, 'CLAUDE.md'), 'utf8'), '# v1\n', 'config rolled back');
   assert.equal(fs.readFileSync(path.join(victim, 'SKILL.md'), 'utf8'), 'precious', 'removed item is back');
   // The restore itself is reversible: current configs were saved aside first.

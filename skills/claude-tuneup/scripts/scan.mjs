@@ -146,7 +146,7 @@ function scanHooks() {
   };
 }
 
-export function checkCmdPath(spec) {
+export function checkCmdPath(spec, existsFn = exists) {
   // spec.command may be a binary path or an interpreter; pull out absolute paths and check them.
   // Strip URLs first (https://, npm:, file://...) — a "//host/path" inside a URL is not a
   // filesystem path and must not be reported as a missing local file.
@@ -168,7 +168,7 @@ export function checkCmdPath(spec) {
     let found = false;
     for (let n = tokens.length; n >= 1; n--) {
       const candidate = tokens.slice(0, n).join(' ');
-      if (exists(candidate)) { consumed = candidate; found = true; break; }
+      if (existsFn(candidate)) { consumed = candidate; found = true; break; }
     }
     if (!found) missing.push(consumed);
     start.lastIndex = m.index + consumed.length;
@@ -397,11 +397,13 @@ function hookCommands(hooks) {
   return found;
 }
 
-function scanSettings() {
+// What scanSettings needs from disk, gathered once. `file` (not `name`) is the reported
+// field — it is what the dev sees in every finding. Kept separate from auditSettings so
+// the audits themselves can be exercised with hand-built fixtures and no filesystem at all.
+export function gatherSettingsSnapshot() {
   // Read once, then reported and queried from the same snapshot — so a finding and the
   // effective value it is compared against can never come from two different reads.
   const settingsAsFiles = settingsFiles();
-  // `file` (not `name`) is the reported field — it is what the dev sees in every finding.
   const loaded = settingsAsFiles.map(({ name, ...rest }) => ({
     file: name,
     ...rest,
@@ -410,6 +412,25 @@ function scanSettings() {
       unknownKeys: Object.keys(rest.data).filter((k) => !KNOWN_SETTINGS_KEYS.has(k)),
     } : {}),
   }));
+  // outputStyle must name something. Built-ins exist and are not on disk, so a miss is
+  // "not one of yours", never "broken" — customStyles is what tells the two apart.
+  const stylesDir = path.join(CLAUDE_DIR, 'output-styles');
+  const customStyles = ls(stylesDir).filter((n) => n.endsWith('.md')).map((n) => n.replace(/\.md$/, ''));
+  return {
+    loaded,
+    customStyles,
+    configuredStyle: effectiveString('outputStyle', settingsAsFiles),
+    model: effectiveString('model', settingsAsFiles),
+  };
+}
+
+// Five audits over one snapshot (permissions, effective-value conflicts, broken paths, env
+// secret hints, output style) — internal seams of one settings audit, not five public ones,
+// because they already share the single read gatherSettingsSnapshot took. `existsFn` is the
+// only side effect left after gathering (permission path prefixes are only known once the
+// rules are parsed, which happens here) — inject a stub to test this with no filesystem.
+export function auditSettings(snapshot, { existsFn = exists } = {}) {
+  const { loaded, customStyles, configuredStyle, model } = snapshot;
   const live = loaded.filter((f) => f.parses);
 
   // --- permissions
@@ -421,7 +442,7 @@ function scanSettings() {
         const prefix = parsed.parsed ? permissionPathPrefix(parsed.spec) : null;
         rules.push({
           file: f.file, list, ...parsed,
-          ...(prefix ? { pathPrefix: prefix, pathMissing: !exists(prefix) } : {}),
+          ...(prefix ? { pathPrefix: prefix, pathMissing: !existsFn(prefix) } : {}),
         });
       }
     }
@@ -463,12 +484,12 @@ function scanSettings() {
   for (const f of live) {
     const status = f.data.statusLine;
     if (typeof status?.command === 'string') {
-      for (const missing of checkCmdPath({ command: status.command }).missing) {
+      for (const missing of checkCmdPath({ command: status.command }, existsFn).missing) {
         brokenPaths.push({ file: f.file, where: 'statusLine.command', missing });
       }
     }
     for (const { event, command } of hookCommands(f.data.hooks)) {
-      for (const missing of checkCmdPath({ command }).missing) {
+      for (const missing of checkCmdPath({ command }, existsFn).missing) {
         brokenPaths.push({ file: f.file, where: `hooks.${event}`, missing });
       }
     }
@@ -480,11 +501,6 @@ function scanSettings() {
     .filter(([k, v]) => SECRET_KEY_NAME.test(k) && typeof v === 'string' && v.trim().length >= 8)
     .map(([key]) => ({ file: f.file, key })));
 
-  // --- outputStyle must name something. Built-ins exist and are not on disk, so a
-  // miss is "not one of yours", never "broken".
-  const stylesDir = path.join(CLAUDE_DIR, 'output-styles');
-  const customStyles = ls(stylesDir).filter((n) => n.endsWith('.md')).map((n) => n.replace(/\.md$/, ''));
-  const configuredStyle = effectiveString('outputStyle', settingsAsFiles);
   const outputStyle = configuredStyle === null ? null : {
     configured: configuredStyle,
     matchesCustom: customStyles.includes(configuredStyle),
@@ -505,9 +521,13 @@ function scanSettings() {
     brokenPaths,
     envSecretHints,
     outputStyle,
-    model: effectiveString('model', settingsAsFiles),
+    model,
     note: 'Only user-level settings were read; enterprise and project settings also apply and are out of scope. Unknown top-level keys are reported, never proposed for removal — the key list is hand-maintained and a newer Claude Code may have added it.',
   };
+}
+
+function scanSettings() {
+  return auditSettings(gatherSettingsSnapshot());
 }
 
 export function scanMemory() {

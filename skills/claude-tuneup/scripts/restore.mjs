@@ -7,8 +7,11 @@
 //   node restore.mjs search <term...>                  -> which run touched the thing that broke
 import fs from 'node:fs';
 import path from 'node:path';
-import { skillRoot, backupsRoot, exists, ls, move, readJSON, restrict } from './lib.mjs';
+import { skillRoot, backupsRoot, exists, ls, move, restrict } from './lib.mjs';
 import { CONFIG_FILES } from './install.mjs';
+import {
+  readRemovedMap, readCreatedList, actionsLogFile, isRestorePoint, runIdOf,
+} from './restorepoint.mjs';
 
 // New restore points live in backupsRoot(); older ones may still sit in the legacy
 // in-skill location. Scan both so a pre-fix backup stays restorable.
@@ -18,10 +21,7 @@ const ROOTS = [backupsRoot(), path.join(skillRoot(import.meta.url), '.backups')]
 // snapshots, so the two halves of the round-trip cannot drift apart.
 const CONFIG_DEST = Object.fromEntries(CONFIG_FILES.map((file) => [path.basename(file), file]));
 
-const createdIn = (rp) => {
-  const list = readJSON(path.join(rp, 'created.json'));
-  return Array.isArray(list) ? list : [];
-};
+const createdIn = readCreatedList;
 
 // Undoing a creation means taking a file away, so it goes through the same move-never-rm
 // rule as everything else: the item lands in undone-creations/ inside the restore point.
@@ -36,14 +36,13 @@ function undoCreation(rp, target) {
   return { created: abs, movedTo: dest };
 }
 
-// Collect real restore points across all roots. A restore point is a dir holding a
-// removed.json — this also filters out the pre-restore-* safety snapshots.
+// Collect real restore points across all roots.
 function allPoints() {
   const out = [];
   for (const root of ROOTS) {
     for (const ts of ls(root)) {
       const rp = path.join(root, ts);
-      if (!exists(path.join(rp, 'removed.json'))) continue;
+      if (!isRestorePoint(rp)) continue;
       out.push({ ts, rp });
     }
   }
@@ -52,11 +51,11 @@ function allPoints() {
 
 function list() {
   const result = allPoints().map(({ ts, rp }) => {
-    const removed = readJSON(path.join(rp, 'removed.json')) || {};
+    const removed = readRemovedMap(rp);
     let logLines = 0;
-    try { logLines = fs.readFileSync(path.join(rp, 'actions.log'), 'utf8').trim().split('\n').length; } catch {}
+    try { logLines = fs.readFileSync(actionsLogFile(rp), 'utf8').trim().split('\n').length; } catch {}
     return {
-      ts, path: rp,
+      ts, path: rp, runId: runIdOf(rp),
       removedCount: Object.keys(removed).length,
       createdCount: createdIn(rp).length,
       logLines,
@@ -87,7 +86,7 @@ function search(rawTerms) {
   for (const { ts, rp } of allPoints()) {
     const hit = new Set();
     const items = [];
-    for (const [stashed, original] of Object.entries(readJSON(path.join(rp, 'removed.json')) || {})) {
+    for (const [stashed, original] of Object.entries(readRemovedMap(rp))) {
       const hits = matched(original, terms);
       if (!hits.length) continue;
       hits.forEach((h) => hit.add(h));
@@ -106,7 +105,7 @@ function search(rawTerms) {
 
     const log = [];
     try {
-      for (const line of fs.readFileSync(path.join(rp, 'actions.log'), 'utf8').split('\n')) {
+      for (const line of fs.readFileSync(actionsLogFile(rp), 'utf8').split('\n')) {
         const hits = matched(line, terms);
         if (!line.trim() || !hits.length) continue;
         hits.forEach((h) => hit.add(h));
@@ -130,6 +129,7 @@ function search(rawTerms) {
     points.push({
       ts,
       path: rp,
+      runId: runIdOf(rp),
       score: hit.size,
       matchedTerms: [...hit],
       items: items.slice(0, MAX_HITS),
@@ -158,7 +158,7 @@ function applyOnly(rp, target) {
   // `--only` with nothing after it: say so, rather than letting path.resolve throw a raw
   // stack trace at the dev in the middle of a recovery.
   if (!target) { console.error('apply --only needs a path: node restore.mjs apply <RP> --only <path>'); process.exit(1); }
-  const map = readJSON(path.join(rp, 'removed.json')) || {};
+  const map = readRemovedMap(rp);
   const wanted = path.resolve(target);
 
   // A regression can come from either direction, so undoing one item can mean putting it
@@ -232,7 +232,7 @@ function apply(rp, { configsOnly = false, itemsOnly = false } = {}) {
   // 2. Removed items back to original paths (skipped with --configs-only) —
   //    never clobber a newer item that took the path.
   if (!configsOnly) {
-    const map = readJSON(path.join(rp, 'removed.json')) || {};
+    const map = readRemovedMap(rp);
     for (const [stashed, original] of Object.entries(map)) {
       if (!exists(stashed)) continue;
       if (exists(original)) {
@@ -260,11 +260,12 @@ function apply(rp, { configsOnly = false, itemsOnly = false } = {}) {
   // 4. Surface re-add commands (marketplaces/plugins can't be auto-restored).
   let readd = [];
   try {
-    readd = fs.readFileSync(path.join(rp, 'actions.log'), 'utf8')
+    readd = fs.readFileSync(actionsLogFile(rp), 'utf8')
       .split('\n').filter(l => /re-add:|marketplace removed/.test(l));
   } catch {}
   process.stdout.write(JSON.stringify({
     scope: configsOnly ? 'configs-only' : itemsOnly ? 'items-only' : 'full',
+    runId: runIdOf(rp),
     restored, collisions, undoneCreations, preRestoreSnapshot: preDir, manualReAdd: readd,
   }, null, 2) + '\n');
 }

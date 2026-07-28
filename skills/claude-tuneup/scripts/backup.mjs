@@ -8,12 +8,17 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { backupsRoot, runId, exists, move, restrict } from './lib.mjs';
 import { CONFIG_FILES } from './install.mjs';
+import {
+  readRemovedMap, writeRemovedMap, readCreatedList, writeCreatedList, appendActionsLog,
+} from './restorepoint.mjs';
 
 // Restore points live outside the skill dir (see lib.backupsRoot) so a skill
 // reinstall/update/move can't take the undo history with it.
 const BACKUPS = backupsRoot();
 
 function create() {
+  // The restore point's basename IS the run id (see restorepoint.mjs's runIdOf) —
+  // minted here, once, so the two never drift apart.
   const rp = path.join(BACKUPS, runId());
   fs.mkdirSync(path.join(rp, 'removed'), { recursive: true });
   // Snapshots can carry secrets (.claude.json may hold tokens/keys) — keep the
@@ -25,20 +30,20 @@ function create() {
     fs.copyFileSync(f, dest);
     restrict(dest, 0o600);
   }
-  fs.writeFileSync(path.join(rp, 'removed.json'), '{}');
-  fs.writeFileSync(path.join(rp, 'created.json'), '[]');
-  fs.appendFileSync(path.join(rp, 'actions.log'), `# restore point ${new Date().toISOString()}\n`);
+  writeRemovedMap(rp, {});
+  writeCreatedList(rp, []);
+  appendActionsLog(rp, `# restore point ${new Date().toISOString()}`);
   process.stdout.write(rp + '\n');
 }
 
 function stash(rp, target) {
   const abs = path.resolve(target);
-  const map = JSON.parse(fs.readFileSync(path.join(rp, 'removed.json'), 'utf8'));
+  const map = readRemovedMap(rp);
   const dest = path.join(rp, 'removed', path.basename(abs) + '.' + Object.keys(map).length);
   move(abs, dest);
   map[dest] = abs;
-  fs.writeFileSync(path.join(rp, 'removed.json'), JSON.stringify(map, null, 2));
-  fs.appendFileSync(path.join(rp, 'actions.log'), `removed: ${abs} -> ${dest}\n`);
+  writeRemovedMap(rp, map);
+  appendActionsLog(rp, `removed: ${abs} -> ${dest}`);
   process.stdout.write(`stashed ${abs}\n`);
 }
 
@@ -48,18 +53,15 @@ function stash(rp, target) {
 // Nothing is copied here: the file is the dev's to keep until they ask to undo it.
 function created(rp, target) {
   const abs = path.resolve(target);
-  const file = path.join(rp, 'created.json');
-  let list = [];
-  try { list = JSON.parse(fs.readFileSync(file, 'utf8')); } catch {}
-  if (!Array.isArray(list)) list = [];
+  const list = readCreatedList(rp);
   if (!list.includes(abs)) list.push(abs);
-  fs.writeFileSync(file, JSON.stringify(list, null, 2));
-  fs.appendFileSync(path.join(rp, 'actions.log'), `created: ${abs}\n`);
+  writeCreatedList(rp, list);
+  appendActionsLog(rp, `created: ${abs}`);
   process.stdout.write(`recorded creation ${abs}\n`);
 }
 
 function log(rp, msg) {
-  fs.appendFileSync(path.join(rp, 'actions.log'), msg + '\n');
+  appendActionsLog(rp, msg);
 }
 
 const [cmd, ...rest] = process.argv.slice(2);

@@ -7,7 +7,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
   checkCmdPath, hookReferenced, classifyMcp, ageSpan,
-  parsePermissionRule, permissionPathPrefix,
+  parsePermissionRule, permissionPathPrefix, auditSettings,
 } from './scan.mjs';
 
 const SCRIPTS = path.dirname(fileURLToPath(import.meta.url));
@@ -32,6 +32,12 @@ function runSection(home, section, extraEnv = {}) {
 
 function scanMemory(home, extraEnv = {}) {
   return runSection(home, 'memory', extraEnv);
+}
+
+// A loaded-settings-file fixture in the shape gatherSettingsSnapshot produces, so
+// auditSettings can be exercised with plain objects and no filesystem at all.
+function settingsFile(file, data, { unknownKeys = [] } = {}) {
+  return { file, exists: true, parses: true, data, keys: Object.keys(data), unknownKeys };
 }
 
 test('checkCmdPath does not flag URL args as missing local paths', () => {
@@ -291,35 +297,33 @@ test('permissionPathPrefix only fires on path-shaped specs and stops at the firs
     'a multi-letter scheme is not a drive letter');
 });
 
-test('settings section finds dead paths, duplicate and contradictory rules, and which file wins', () => {
-  const home = makeMemoryHome();
-  const claude = path.join(home, '.claude');
-  const gone = path.join(home, 'deleted-project');
-  // A directory that really is there, as the control. It has to be one the test creates:
-  // /tmp was standing in for "obviously exists" and does not exist on Windows, so the
-  // control itself was reported as a dead path there. The // absolute form it also
-  // covered is pure string work, exercised in the permissionPathPrefix test above.
-  const alive = path.join(home, 'live-project');
-  fs.mkdirSync(alive, { recursive: true });
+test('auditSettings finds dead paths, duplicate and contradictory rules, and which file wins', () => {
+  const gone = '/deleted-project';
+  const alive = '/live-project';
+  // No filesystem at all: existsFn is a stub, not a real path check.
+  const existsFn = (p) => p === alive;
 
-  fs.writeFileSync(path.join(claude, 'settings.json'), JSON.stringify({
+  const base = settingsFile('settings.json', {
     model: 'some-pinned-model',
     permissions: {
       allow: ['Bash(npm run test:*)', 'Bash(npm run test:*)', `Read(${gone}/**)`, `Edit(${alive}/**)`],
       deny: ['Bash(npm run test:*)'],
     },
-    statusLine: { type: 'command', command: path.join(home, 'no-such-statusline.sh') },
-    hooks: { Stop: [{ hooks: [{ type: 'command', command: path.join(home, 'no-such-hook.sh') }] }] },
+    statusLine: { type: 'command', command: '/no-such-statusline.sh' },
+    hooks: { Stop: [{ hooks: [{ type: 'command', command: '/no-such-hook.sh' }] }] },
     env: { MY_API_KEY: 'sk-abcdefghijkl', DEBUG: '1' },
     cleanupPeriodDays: 30,
     someKeyFromANewerRelease: true,
-  }));
-  fs.writeFileSync(path.join(claude, 'settings.local.json'), JSON.stringify({
+  }, { unknownKeys: ['someKeyFromANewerRelease'] });
+  const local = settingsFile('settings.local.json', {
     cleanupPeriodDays: 90,
     permissions: { allow: ['Bash(npm run test:*)'] },
-  }));
+  });
 
-  const s = runSection(home, 'settings');
+  const s = auditSettings(
+    { loaded: [base, local], customStyles: [], configuredStyle: null, model: 'some-pinned-model' },
+    { existsFn },
+  );
 
   assert.deepEqual(s.permissions.duplicatedInSameList, ['settings.json|allow|Bash(npm run test:*)']);
   assert.deepEqual(s.permissions.duplicatedAcrossFiles, ['allow|Bash(npm run test:*)']);
@@ -339,34 +343,24 @@ test('settings section finds dead paths, duplicate and contradictory rules, and 
   assert.equal(JSON.stringify(s).includes('sk-abcdefghijkl'), false);
 
   // An unrecognized key is surfaced but never proposed for removal.
-  const base = s.files.find(f => f.file === 'settings.json');
-  assert.deepEqual(base.unknownKeys, ['someKeyFromANewerRelease']);
-  fs.rmSync(home, { recursive: true, force: true });
+  const baseOut = s.files.find(f => f.file === 'settings.json');
+  assert.deepEqual(baseOut.unknownKeys, ['someKeyFromANewerRelease']);
 });
 
-test('settings section reports a malformed file instead of treating it as empty', () => {
-  const home = makeMemoryHome();
-  fs.writeFileSync(path.join(home, '.claude', 'settings.json'), '{ "permissions": ');
-  const s = runSection(home, 'settings');
+test('auditSettings reports a malformed file instead of treating it as empty', () => {
+  const malformed = { file: 'settings.json', exists: true, parses: false };
+  const s = auditSettings({ loaded: [malformed], customStyles: [], configuredStyle: null, model: null });
   const base = s.files.find(f => f.file === 'settings.json');
-  assert.deepEqual(base, { file: 'settings.json', exists: true, parses: false });
+  assert.deepEqual(base, malformed);
   assert.deepEqual(s.permissions.rules, [], 'an unparseable file contributes no rules');
-  fs.rmSync(home, { recursive: true, force: true });
 });
 
-test('settings section separates a custom output style from a built-in name', () => {
-  const home = makeMemoryHome();
-  const claude = path.join(home, '.claude');
-  fs.mkdirSync(path.join(claude, 'output-styles'), { recursive: true });
-  fs.writeFileSync(path.join(claude, 'output-styles', 'terse.md'), '---\nname: terse\ndescription: short\n---\n');
-
-  fs.writeFileSync(path.join(claude, 'settings.json'), JSON.stringify({ outputStyle: 'terse' }));
-  let s = runSection(home, 'settings');
+test('auditSettings separates a custom output style from a built-in name', () => {
+  const snapshot = { loaded: [], customStyles: ['terse'], configuredStyle: 'terse', model: null };
+  let s = auditSettings(snapshot);
   assert.equal(s.outputStyle.matchesCustom, true);
   assert.deepEqual(s.outputStyle.customAvailable, ['terse']);
 
-  fs.writeFileSync(path.join(claude, 'settings.json'), JSON.stringify({ outputStyle: 'Explanatory' }));
-  s = runSection(home, 'settings');
+  s = auditSettings({ ...snapshot, configuredStyle: 'Explanatory' });
   assert.equal(s.outputStyle.matchesCustom, false, 'a built-in is not on disk — reported, not condemned');
-  fs.rmSync(home, { recursive: true, force: true });
 });
