@@ -11,6 +11,10 @@ take a **major** bump.
 
 ## [Unreleased]
 
+## [5.1.1] - 2026-07-28
+
+Two settings bugs, both found by asking why the same question was answered in six places.
+
 ### Fixed
 
 - **Auto-memory settings were read from `settings.json` alone.** A dev who set
@@ -337,7 +341,8 @@ Almost nothing about a run behaves the way 0.4.x behaved.
   undoable runs via restore points; session-history protection; `--dry-run`;
   EN + pt-BR READMEs.
 
-[Unreleased]: https://github.com/paulovitin/claude-tuneup/compare/v5.1.0...HEAD
+[Unreleased]: https://github.com/paulovitin/claude-tuneup/compare/v5.1.1...HEAD
+[5.1.1]: https://github.com/paulovitin/claude-tuneup/compare/v5.1.0...v5.1.1
 [5.1.0]: https://github.com/paulovitin/claude-tuneup/compare/v5.0.0...v5.1.0
 [5.0.0]: https://github.com/paulovitin/claude-tuneup/compare/v0.4.1...v5.0.0
 [0.4.1]: https://github.com/paulovitin/claude-tuneup/compare/v0.3.0...v0.4.1
