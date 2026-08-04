@@ -11,8 +11,7 @@
 // so an update that just happened stops nudging immediately without waiting for cache expiry.
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { skillRoot, stateBase, readJSON, out } from './lib.mjs';
+import { skillRoot, stateBase, readJSON, out, isMain } from './lib.mjs';
 
 const REPO = 'paulovitin/claude-tuneup';
 const CACHE_FILE = path.join(stateBase(), '.version-check-cache.json');
@@ -111,6 +110,6 @@ async function main() {
 }
 
 // Run only when invoked directly; stay importable and side-effect-free for tests.
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMain(import.meta.url)) {
   main();
 }

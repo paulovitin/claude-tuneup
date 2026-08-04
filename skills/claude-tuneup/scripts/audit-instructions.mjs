@@ -3,8 +3,7 @@
 // it never assigns a verdict, score, severity, or rewrite.
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { CLAUDE_DIR, AGENTS_DIR, exists, ls, lstat, readText as read, out } from './lib.mjs';
+import { CLAUDE_DIR, AGENTS_DIR, exists, ls, lstat, readText as read, out, isMain } from './lib.mjs';
 import { claudeFile, effectiveString } from './install.mjs';
 import { parseImports } from './scan.mjs';
 
@@ -350,5 +349,4 @@ export function main(argv = process.argv.slice(2)) {
   out(argv.includes('--surfaces') ? scanSurfaces() : auditInstructions());
 }
 
-const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-if (isMain) main();
+if (isMain(import.meta.url)) main();

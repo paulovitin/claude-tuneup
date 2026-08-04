@@ -14,8 +14,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
-import { CLAUDE_DIR, stateBase, out } from './lib.mjs';
+import { CLAUDE_DIR, stateBase, out, isMain } from './lib.mjs';
 import { spawnClaude, withCache } from './headless.mjs';
 
 export const CACHE_FILE = path.join(stateBase(), 'insights-cache.json');
@@ -116,8 +115,7 @@ function usage() {
   process.stdout.write('Usage: node insights.mjs [--no-cache] [--help]\n');
 }
 
-const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-if (isMain) {
+if (isMain(import.meta.url)) {
   if (process.argv.includes('--help')) usage();
   else out(generate({ noCache: process.argv.includes('--no-cache') }));
 }
