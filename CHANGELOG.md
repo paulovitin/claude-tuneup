@@ -11,6 +11,10 @@ take a **major** bump.
 
 ## [Unreleased]
 
+## [5.2.1] - 2026-08-04
+
+The skill works when installed the way its own README tells you to install it.
+
 ### Fixed
 
 - **Every CLI script silently did nothing when the skill was reached through a symlink.**
@@ -370,7 +374,8 @@ Almost nothing about a run behaves the way 0.4.x behaved.
   undoable runs via restore points; session-history protection; `--dry-run`;
   EN + pt-BR READMEs.
 
-[Unreleased]: https://github.com/paulovitin/claude-tuneup/compare/v5.2.0...HEAD
+[Unreleased]: https://github.com/paulovitin/claude-tuneup/compare/v5.2.1...HEAD
+[5.2.1]: https://github.com/paulovitin/claude-tuneup/compare/v5.2.0...v5.2.1
 [5.2.0]: https://github.com/paulovitin/claude-tuneup/compare/v5.1.1...v5.2.0
 [5.1.1]: https://github.com/paulovitin/claude-tuneup/compare/v5.1.0...v5.1.1
 [5.1.0]: https://github.com/paulovitin/claude-tuneup/compare/v5.0.0...v5.1.0
