@@ -10,8 +10,7 @@
 //           usage, memory
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { HOME, CLAUDE_DIR, AGENTS_DIR, CLAUDE_JSON, readJSON, exists, dirSize, isEmptyDir, human, ls, lstat, MB, out } from './lib.mjs';
+import { HOME, CLAUDE_DIR, AGENTS_DIR, CLAUDE_JSON, readJSON, exists, dirSize, isEmptyDir, human, ls, lstat, MB, out, isMain } from './lib.mjs';
 import {
   claudeFile, settingsFiles, liveSettings, effectiveSetting, effectiveString,
   resolveConfiguredPath, memoryFile, MERGED_SETTINGS_KEYS,
@@ -619,4 +618,4 @@ Sections: ${Object.keys(SECTIONS).join(', ')}
 }
 
 // Run the scan only when invoked directly; stay importable (and side-effect-free) for tests.
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();
+if (isMain(import.meta.url)) main();

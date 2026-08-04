@@ -20,6 +20,20 @@ export function skillRoot(metaUrl) {
   return path.dirname(here);
 }
 
+// Is this module the process entrypoint? Both sides must be realpath-resolved before
+// comparing: `npx skills add` installs the skill to ~/.agents/skills and symlinks
+// ~/.claude/skills/claude-tuneup at it, so a script invoked through the symlinked path
+// sees argv[1] under ~/.claude while import.meta.url is already the ~/.agents realpath
+// (Node resolves module specifiers through realpath). path.resolve is purely lexical and
+// does NOT collapse symlinks, so the two never matched and every script exited 0 having
+// silently run nothing — including --help.
+export function isMain(metaUrl) {
+  const arg = process.argv[1];
+  if (!arg) return false;
+  const real = (p) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
+  return real(arg) === real(fileURLToPath(metaUrl));
+}
+
 // Persistent state lives OUTSIDE the skill dir on purpose: a skill update, reinstall,
 // or a move between ~/.claude/skills and ~/.agents/skills must not wipe the user's
 // undo history or caches. Override the whole base with $CLAUDE_TUNEUP_STATE.

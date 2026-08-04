@@ -3,8 +3,7 @@
 // This is deliberately report-only: /doctor may otherwise propose and apply changes.
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
-import { out, stateBase } from './lib.mjs';
+import { out, stateBase, isMain } from './lib.mjs';
 import { spawnClaude, withCache } from './headless.mjs';
 
 export const REPORT_ONLY = 'Report only. Do not apply, edit, or write anything — output the findings and proposals as text.';
@@ -202,8 +201,7 @@ function usage() {
   process.stdout.write('Usage: node doctor.mjs [--no-cache] [--help]\n');
 }
 
-const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-if (isMain) {
+if (isMain(import.meta.url)) {
   if (process.argv.includes('--help')) usage();
   else out(generate({ noCache: process.argv.includes('--no-cache') }));
 }

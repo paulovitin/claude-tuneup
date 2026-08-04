@@ -17,8 +17,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { fileURLToPath } from 'node:url';
-import { CLAUDE_DIR, stateBase, dirSize, restrict, out } from './lib.mjs';
+import { CLAUDE_DIR, stateBase, dirSize, restrict, out, isMain } from './lib.mjs';
 import { scanMemory } from './scan.mjs';
 import { scanSurfaces } from './audit-instructions.mjs';
 
@@ -301,5 +300,4 @@ export function main(argv = process.argv.slice(2)) {
   }
 }
 
-const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-if (isMain) main();
+if (isMain(import.meta.url)) main();

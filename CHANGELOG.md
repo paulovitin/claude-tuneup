@@ -11,6 +11,21 @@ take a **major** bump.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Every CLI script silently did nothing when the skill was reached through a symlink.**
+  This is the layout `npx skills add` produces: the real files land in `~/.agents/skills/`
+  and `~/.claude/skills/claude-tuneup` is symlinked at them. Invoked through that symlinked
+  path — which is the `$SKILL_DIR` the runtime reports, and what SKILL.md tells the agent to
+  use — `scan.mjs`, `doctor.mjs`, `insights.mjs`, `ledger.mjs`, `version-check.mjs` and
+  `audit-instructions.mjs` all exited **0 with empty stdout**, `--help` included. The
+  entrypoint guard compared `path.resolve(process.argv[1])` against
+  `fileURLToPath(import.meta.url)`: `argv[1]` keeps the symlinked path as typed, while Node
+  resolves module specifiers through realpath, and `path.resolve` is purely lexical so it
+  never collapses the symlink. The two sides could not match, `isMain` was always false, and
+  a full tune-up looked like it ran while reading nothing. The comparison now lives in one
+  place — `lib.mjs`'s `isMain(import.meta.url)` — and realpath-resolves both sides.
+
 ## [5.2.0] - 2026-07-28
 
 The undo loop loses its one hand-computed step, and the settings audit becomes a pure
